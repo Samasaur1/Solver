@@ -1,6 +1,6 @@
 import Foundation
 
-enum LexicalToken: Equatable {
+public enum LexicalToken: Equatable {
     case number(value: String)
     case identifier(name: String)
 
@@ -153,6 +153,7 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
     func exponentiation() throws -> ResolvedExpression {
         let base = try factorial()
         if .caret == peek() {
+            _ = next()
             let exp = try exponentiation() //right-associative
             return .binaryOperation(left: base, operator: .exponentiation, right: exp)
         }
@@ -167,7 +168,11 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
         return lit
     }
     func literal() throws -> ResolvedExpression {
-        switch next() {
+        guard let token = peek() else {
+            throw Error.incompleteExpression
+        }
+        _ = next()
+        switch token {
         case .number(let value):
             guard let val = Double(value) else {
                 fatalError("Cannot parse .number token into Double (\(value))")
@@ -182,9 +187,9 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
         case .identifier(let name):
             fatalError("Variable are not yet implemented (\(name))")
         default:
-            fatalError("Unknown ! (\(tokens[idx-1]))")
+            throw Error.unknownToken(token: tokens[idx-1])
         }
-        fatalError("Unreachable code!")
+//        fatalError("Unreachable code!")
     }
 
     return try __parse()
@@ -272,4 +277,6 @@ public enum Error: Swift.Error {
     case numberEndingInDot(lexeme: String)
     case loneDot
     case unmatchedOpeningParenthesis
+    case unknownToken(token: LexicalToken)
+    case incompleteExpression
 }
