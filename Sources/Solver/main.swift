@@ -57,7 +57,7 @@ struct Solver: ParsableCommand {
             print("Equation detected, attempting to solve...")
             do {
                 let (tree, variableName) = try SolverKit.parse(equation)
-                let resultTree = try tree.solve()
+                let resultTree = try tree.solve(printSteps: true)
                 print(variableName!, "=", resultTree.toString())
                 print(variableName!, "=", try resultTree.resolve())
             } catch is SolverError.ParseError {
