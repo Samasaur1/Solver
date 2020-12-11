@@ -315,48 +315,52 @@ public indirect enum ResolvedExpression: Equatable {
         case let .binaryOperation(left, op, right):
             switch op {
             case .addition:
+                return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .subtraction) { (first, second) in
+                    fatalError()
+                }
+            case .subtraction:
+                return try simpleCommutativeBinaryOperation(left: left, right: ResolvedExpression.unaryOperator(operator: .negation, value: right), nonVariableSide: nonVariableSide, invertedOperator: .subtraction) { (first, second) in
+                    fatalError()
+                }
+            case .multiplication:
+                return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .division) { (first, second) in
+                    fatalError()
+                }
+            case .division:
                 let lv = left.contains(.variable)
                 let rv = right.contains(.variable)
                 guard lv || rv else {
                     throw SolverError.InternalError.variableHasMagicallyDisappeared
                 }
-                if lv {
-                    if rv {
-                        //both
-                        fatalError()//TODO: auto-generated method stub
-                    } else {
-                        //l only
-                        let newLeft = left
-                        let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .subtraction, right: right)
-                        let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
-                        return try newEquation.solve()
-                    }
-                } else {
-                    //r only
-                    let newLeft = right
-                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .subtraction, right: left)
-                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
-                    return try newEquation.solve()
-                }
-            case .subtraction:break
-            case .multiplication:
-                return try solveBinaryOperation(left: left, right: right) { (varSide, nonVarSide) in
-                    let newLeft = varSide
-                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .division, right: nonVarSide)
-                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
-                    return try newEquation.solve()
-                } twoVars: { (first, second) in
+                if lv && rv {
                     fatalError()
                 }
-            case .division:break
-            case .exponentiation:break
-            case .modulus:break
+                if lv {
+                    //var on left
+                    // e.g. x/5 = 10 -> x = 10*5
+                    let newLeft = left
+                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .multiplication, right: right)
+                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    return try newEquation.solve()
+                } else {
+                    //var on right
+                    // e.g. 1/x = 2 -> 1/2 = x
+                    // i could go to 1 = 2*x, but this way I just skip a step
+                    let newLeft = ResolvedExpression.binaryOperation(left: left, operator: .division, right: nonVariableSide)
+                    let newRight = right
+                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    return try newEquation.solve()
+                }
+            case .exponentiation:
+                throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside an exponent")
+            case .modulus:
+                throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside a modulo")
             }
         }
         return nonVariableSide
     }
 
-    fileprivate static func solveBinaryOperation(left: ResolvedExpression, right: ResolvedExpression, oneVar: (_ varSide: ResolvedExpression, _ nonVarSide: ResolvedExpression) throws -> ResolvedExpression, twoVars: (ResolvedExpression, ResolvedExpression) throws -> ResolvedExpression) throws -> ResolvedExpression {
+    fileprivate static func commutativeBinaryOperation(left: ResolvedExpression, right: ResolvedExpression, oneVar: (_ varSide: ResolvedExpression, _ nonVarSide: ResolvedExpression) throws -> ResolvedExpression, twoVars: (ResolvedExpression, ResolvedExpression) throws -> ResolvedExpression) throws -> ResolvedExpression {
         let lv = left.contains(.variable)
         let rv = right.contains(.variable)
         guard lv || rv else {
@@ -369,6 +373,14 @@ public indirect enum ResolvedExpression: Equatable {
             return try oneVar(left, right)
         }
         return try oneVar(right, left)
+    }
+    fileprivate static func simpleCommutativeBinaryOperation(left: ResolvedExpression, right: ResolvedExpression, nonVariableSide: ResolvedExpression, invertedOperator: BinaryOperator, bothSidesHaveVars twoVars: (ResolvedExpression, ResolvedExpression) throws -> ResolvedExpression) throws -> ResolvedExpression {
+        return try commutativeBinaryOperation(left: left, right: right, oneVar: { (varSide, nonVarSide) in
+            let newLeft = varSide
+            let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: invertedOperator, right: nonVarSide)
+            let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+            return try newEquation.solve()
+        }, twoVars: twoVars)
     }
 }
 
@@ -463,5 +475,6 @@ public enum SolverError: Swift.Error {
     }
     fileprivate enum InternalError: Swift.Error {
         case variableHasMagicallyDisappeared
+        case notYetSupported(description: String)
     }
 }
