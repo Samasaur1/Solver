@@ -6,6 +6,8 @@ public enum LexicalToken: Equatable {
 
     case leftParen, rightParen
 
+    case equals
+
     //binary operators
     case plus, times, slash, caret, percent
 
@@ -75,6 +77,7 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
             tokens.append(.identifier(name: String(str)))
         case "(": tokens.append(.leftParen); next()
         case ")": tokens.append(.rightParen); next()
+        case "=": tokens.append(.equals); next()
         default:
             throw SolverError.ParseError.illegalCharacter(char: c)
         }
@@ -99,7 +102,15 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
     var variableName: String? = nil
     func __parse() throws -> ResolvedExpression {
         let tree = try term()
-        if peek() != nil {
+        if let token = peek() {
+            if token == .equals {
+                _ = next()
+                let right = try term()
+                if peek() != nil {
+                    throw SolverError.ParseError.tokensRemainingAfterParsing(remaining: Array(tokens[idx...]))
+                }
+                return .equation(left: tree, right: right)
+            }
             throw SolverError.ParseError.tokensRemainingAfterParsing(remaining: Array(tokens[idx...]))
         }
         return tree
@@ -206,6 +217,7 @@ public indirect enum ResolvedExpression {
     case binaryOperation(left: ResolvedExpression, operator: BinaryOperator, right: ResolvedExpression)
     case unaryOperator(operator: UnaryOperator, value: ResolvedExpression)
     case variable
+    case equation(left: ResolvedExpression, right: ResolvedExpression)
 
     public func resolve() throws -> Double {
         switch self {
@@ -217,6 +229,8 @@ public indirect enum ResolvedExpression {
             return try op.perform(on: value)
         case .variable:
             throw SolverError.ResolveError.resolvingVariable
+        case .equation:
+            throw SolverError.ResolveError.resolvingEquation
         }
     }
 }
@@ -266,6 +280,7 @@ public enum SolverError: Swift.Error {
     enum ResolveError: Swift.Error {
         case resolvingVariable
         case nonIntegerFactorial(val: Double)
+        case resolvingEquation
     }
     enum ParseError: Swift.Error {
         case illegalCharacter(char: Character)
