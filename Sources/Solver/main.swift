@@ -48,9 +48,23 @@ struct Solver: ParsableCommand {
 
     private func handle(equation: String) {
         do {
-            let tree = try SolverKit.parse(equation)
+            let (tree, _) = try SolverKit.parse(equation)
             let result = try tree.resolve()
             print(result)
+        } catch SolverError.ResolveError.resolvingVariable {
+            print("Error:".red, "attempting to evaluate expression with variable inside of it (variables can only be used in equations)", to: &STDERR)
+        } catch SolverError.ResolveError.resolvingEquation {
+            print("Equation detected, attempting to solve...")
+            do {
+                let (tree, variableName) = try SolverKit.parse(equation)
+                let resultTree = try tree.solve()
+                print(variableName!, "=", resultTree)
+                print(variableName!, "=", try resultTree.resolve())
+            } catch is SolverError.ParseError {
+                print("Error:".red, "re-parsing the input generated an error — this shouldn't be possible, as parsing is stateless", to: &STDERR)
+            } catch {
+                print("Error:".red, error, to: &STDERR)
+            }
         } catch {
             print("Error:".red, error, to: &STDERR)
         }

@@ -85,7 +85,7 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
     return tokens
 }
 
-func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
+func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
 //    print("Entering \(#function)")
 //    print("Token count: \(tokens.count)")
     var idx = 0
@@ -202,9 +202,9 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
 //        fatalError("Unreachable code!")
     }
 
-    return try __parse()
+    return (try __parse(), variableName)
 }
-public func parse(_ input: String) throws -> ResolvedExpression {
+public func parse(_ input: String) throws -> (ResolvedExpression, String?) {
     return try parse(tokens: tokenize(input))
 }
 
@@ -212,7 +212,7 @@ enum Expression {
 
 }
 
-public indirect enum ResolvedExpression {
+public indirect enum ResolvedExpression: Equatable {
     case number(value: Double)
     case binaryOperation(left: ResolvedExpression, operator: BinaryOperator, right: ResolvedExpression)
     case unaryOperator(operator: UnaryOperator, value: ResolvedExpression)
@@ -232,6 +232,118 @@ public indirect enum ResolvedExpression {
         case .equation:
             throw SolverError.ResolveError.resolvingEquation
         }
+    }
+
+    func contains(_ subexpr: ResolvedExpression) -> Bool {
+        if self == subexpr { return true }
+        switch self {
+        case .number: return self == subexpr
+        case let .binaryOperation(left, _, right):
+            return left.contains(subexpr) || right.contains(subexpr)
+        case let .unaryOperator(_, value):
+            return value.contains(subexpr)
+        case .variable: return self == subexpr
+        case let .equation(left, right):
+            return left.contains(subexpr) || right.contains(subexpr)
+        }
+    }
+
+    public func solve() throws -> ResolvedExpression {
+        guard case let .equation(left, right) = self else {
+            throw SolverError.SolveError.solvingExpression
+        }
+        let lv = left.contains(.variable)
+        let rv = right.contains(.variable)
+        guard lv || rv else {
+            let l = try left.resolve()
+            let r = try right.resolve()
+            throw SolverError.SolveError.solvingEquationWithoutVariable(equal: l == r)
+        }
+        if lv {
+            if rv {
+                //variable on both sides
+
+            } else {
+                //variable on left but not right
+                return try ResolvedExpression.solve(variableSide: left, nonVariableSide: right)
+            }
+        } else {
+            //variable on right but not left
+            return try ResolvedExpression.solve(variableSide: right, nonVariableSide: left)
+        }
+        return self
+    }
+
+    fileprivate static func solve(variableSide: ResolvedExpression, nonVariableSide: ResolvedExpression) throws -> ResolvedExpression {
+        switch variableSide {
+        case .number, .equation: break //impossible
+        case .variable: return nonVariableSide
+        case let .unaryOperator(op, value):
+            switch op {
+            case .factorial: throw SolverError.SolveError.variableInFactorial
+            case .negation:
+                let newLeft = value
+                let newRight = ResolvedExpression.unaryOperator(operator: .negation, value: nonVariableSide)
+                let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                return try newEquation.solve()
+            }
+        case let .binaryOperation(left, op, right):
+            switch op {
+            case .addition:
+                let lv = left.contains(.variable)
+                let rv = right.contains(.variable)
+                guard lv || rv else {
+                    throw SolverError.InternalError.variableHasMagicallyDisappeared
+                }
+                if lv {
+                    if rv {
+                        //both
+                        fatalError()//TODO: auto-generated method stub
+                    } else {
+                        //l only
+                        let newLeft = left
+                        let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .subtraction, right: right)
+                        let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                        return try newEquation.solve()
+                    }
+                } else {
+                    //r only
+                    let newLeft = right
+                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .subtraction, right: left)
+                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    return try newEquation.solve()
+                }
+            case .subtraction:break
+            case .multiplication:
+                return try solveBinaryOperation(left: left, right: right) { (varSide, nonVarSide) in
+                    let newLeft = varSide
+                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .division, right: nonVarSide)
+                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    return try newEquation.solve()
+                } twoVars: { (first, second) in
+                    fatalError()
+                }
+            case .division:break
+            case .exponentiation:break
+            case .modulus:break
+            }
+        }
+        return nonVariableSide
+    }
+
+    fileprivate static func solveBinaryOperation(left: ResolvedExpression, right: ResolvedExpression, oneVar: (_ varSide: ResolvedExpression, _ nonVarSide: ResolvedExpression) throws -> ResolvedExpression, twoVars: (ResolvedExpression, ResolvedExpression) throws -> ResolvedExpression) throws -> ResolvedExpression {
+        let lv = left.contains(.variable)
+        let rv = right.contains(.variable)
+        guard lv || rv else {
+            throw SolverError.InternalError.variableHasMagicallyDisappeared
+        }
+        if lv && rv {
+            return try twoVars(left, right)
+        }
+        if lv {
+            return try oneVar(left, right)
+        }
+        return try oneVar(right, left)
     }
 }
 
@@ -277,12 +389,12 @@ public enum UnaryOperator {
 }
 
 public enum SolverError: Swift.Error {
-    enum ResolveError: Swift.Error {
+    public enum ResolveError: Swift.Error {
         case resolvingVariable
         case nonIntegerFactorial(val: Double)
         case resolvingEquation
     }
-    enum ParseError: Swift.Error {
+    public enum ParseError: Swift.Error {
         case illegalCharacter(char: Character)
         case numberEndingInDot(lexeme: String)
         case loneDot
@@ -291,5 +403,13 @@ public enum SolverError: Swift.Error {
         case incompleteExpression
         case tokensRemainingAfterParsing(remaining: [LexicalToken])
         case tooManyVariables(newVariable: String)
+    }
+    public enum SolveError: Swift.Error {
+        case solvingExpression
+        case solvingEquationWithoutVariable(equal: Bool)
+        case variableInFactorial
+    }
+    fileprivate enum InternalError: Swift.Error {
+        case variableHasMagicallyDisappeared
     }
 }
