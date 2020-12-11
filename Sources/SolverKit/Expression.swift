@@ -278,6 +278,30 @@ public indirect enum ResolvedExpression: Equatable {
         guard case let .equation(left, right) = self else {
             throw SolverError.SolveError.solvingExpression
         }
+
+        switch (left, right) {
+        case (.number, .number):
+            throw SolverError.InternalError.unreachable(reason: "This function cannot be called where there are no variables")
+        case (.equation, .equation):
+            throw SolverError.InternalError.unreachable(reason: "This function cannot be called with nested equations")
+        case (.variable, .variable):
+            throw SolverError.InternalError.notYetSupported(description: "x=x")
+        case (.unaryOperator(let op1, let value1), .unaryOperator(let op2, let value2)):
+            if op1 == op2 {
+                return try ResolvedExpression.equation(left: value1, right: value2).solve(printSteps: printSteps)
+            }
+        case (let .binaryOperation(left1, op1, right1), let .binaryOperation(left2, op2, right2)):
+            if (op1 == op2) {
+                if (left1 == left2) {
+                    return try ResolvedExpression.equation(left: right1, right: right2).solve(printSteps: printSteps)
+                }
+                if (right1 == right2) {
+                    return try ResolvedExpression.equation(left: left1, right: left2).solve(printSteps: printSteps)
+                }
+            }
+        default: break
+        }
+
         let lv = left.contains(.variable)
         let rv = right.contains(.variable)
         guard lv || rv else {
