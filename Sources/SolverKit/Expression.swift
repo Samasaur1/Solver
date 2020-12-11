@@ -219,6 +219,31 @@ public indirect enum ResolvedExpression: Equatable {
     case variable
     case equation(left: ResolvedExpression, right: ResolvedExpression)
 
+    public func toString() -> String {
+        switch self {
+        case let .number(value): return String(value)
+        case let .binaryOperation(left, op, right):
+            let leftOutput: String
+            switch left {
+            case .number, .variable, .unaryOperator:
+                leftOutput = left.toString()
+            default:
+                leftOutput = "(\(left.toString()))"
+            }
+            let rightOutput: String
+            switch right {
+            case .number, .variable, .unaryOperator:
+                rightOutput = right.toString()
+            default:
+                rightOutput = "(\(right.toString()))"
+            }
+            return "\(leftOutput) \(op.symbol) \(rightOutput)"
+        case let .unaryOperator(op, value): return op.symbol(on: value)
+        case .variable: return "x"
+        case let .equation(left, right): return "\(left.toString()) = \(right.toString())"
+        }
+    }
+
     public func resolve() throws -> Double {
         switch self {
         case let .number(value):
@@ -367,6 +392,17 @@ public enum BinaryOperator {
         case .modulus: return l.truncatingRemainder(dividingBy: r)
         }
     }
+
+    var symbol: String {
+        switch self {
+        case .addition: return "+"
+        case .subtraction: return "-"
+        case .multiplication: return "*"
+        case .division: return "/"
+        case .exponentiation: return "^"
+        case .modulus: return "%"
+        }
+    }
 }
 
 public enum UnaryOperator {
@@ -384,6 +420,22 @@ public enum UnaryOperator {
             }
         case .negation:
             return -val
+        }
+    }
+
+    func symbol(on expr: ResolvedExpression) -> String {
+        let exprOutput: String
+        switch expr {
+        case .number, .variable, .unaryOperator:
+            exprOutput = expr.toString()
+        default:
+            exprOutput = "(\(expr.toString()))"
+        }
+        switch self {
+        case .factorial:
+            return "\(exprOutput)!"
+        case .negation:
+            return "-\(exprOutput)"
         }
     }
 }

@@ -58,7 +58,7 @@ struct Solver: ParsableCommand {
             do {
                 let (tree, variableName) = try SolverKit.parse(equation)
                 let resultTree = try tree.solve()
-                print(variableName!, "=", resultTree)
+                print(variableName!, "=", resultTree.toString())
                 print(variableName!, "=", try resultTree.resolve())
             } catch is SolverError.ParseError {
                 print("Error:".red, "re-parsing the input generated an error — this shouldn't be possible, as parsing is stateless", to: &STDERR)
