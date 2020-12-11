@@ -35,6 +35,7 @@ struct Solver: ParsableCommand {
         helpNames: .shortAndLong)
 
     @Argument(help: .init("The equation to evaluate. If not given, reads from standard input.", discussion: "This can either be an expression (no variables, no equals sign), in which case it will be evaluated, or an equation (one variable, one equals sign), in which case the command will attempt to solve for the variable.")) var equation: String?
+    @Flag(name: .shortAndLong, help: .init("Show the steps when solving for variables.", discussion: "They may not make sense to the user, as simplifications are not always made.")) var showSteps = false
 
     func run() throws {
         if let eq = equation {
@@ -42,6 +43,7 @@ struct Solver: ParsableCommand {
         } else {
             while let eq = readLine() {
                 handle(equation: eq)
+                print()
             }
         }
     }
@@ -54,14 +56,20 @@ struct Solver: ParsableCommand {
         } catch SolverError.ResolveError.resolvingVariable {
             print("Error:".red, "attempting to evaluate expression with variable inside of it (variables can only be used in equations)", to: &STDERR)
         } catch SolverError.ResolveError.resolvingEquation {
-            print("Equation detected, attempting to solve...")
             do {
                 let (tree, variableName) = try SolverKit.parse(equation)
-                let resultTree = try tree.solve(printSteps: true)
-                print(variableName!, "=", resultTree.toString())
+                let resultTree: ResolvedExpression
+                if showSteps {
+                    resultTree = try tree.solve(printSteps: true)
+                    print(variableName!, "=", resultTree.toString())
+                } else {
+                    resultTree = try tree.solve(printSteps: false)
+                }
                 print(variableName!, "=", try resultTree.resolve())
             } catch is SolverError.ParseError {
                 print("Error:".red, "re-parsing the input generated an error — this shouldn't be possible, as parsing is stateless", to: &STDERR)
+            } catch SolverError.SolveError.solvingEquationWithoutVariable(let equal) {
+                print("No variables to solve for (the two sides \((equal ? "were" : "were not").bold) equal)")
             } catch {
                 print("Error:".red, error, to: &STDERR)
             }

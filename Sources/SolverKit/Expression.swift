@@ -274,14 +274,14 @@ public indirect enum ResolvedExpression: Equatable {
     }
 
     public func solve(printSteps: Bool) throws -> ResolvedExpression {
-        print(self.toString())
+        if printSteps { print(self.toString()) }
         guard case let .equation(left, right) = self else {
             throw SolverError.SolveError.solvingExpression
         }
 
         switch (left, right) {
         case (.number, .number):
-            throw SolverError.InternalError.unreachable(reason: "This function cannot be called where there are no variables")
+            throw SolverError.SolveError.solvingEquationWithoutVariable(equal: left == right)
         case (.equation, .equation):
             throw SolverError.InternalError.unreachable(reason: "This function cannot be called with nested equations")
         case (.variable, .variable):
@@ -344,8 +344,28 @@ public indirect enum ResolvedExpression: Equatable {
                     fatalError()
                 }
             case .subtraction:
-                return try simpleCommutativeBinaryOperation(left: left, right: ResolvedExpression.unaryOperator(operator: .negation, value: right), nonVariableSide: nonVariableSide, invertedOperator: .subtraction, printSteps: printSteps) { (first, second) in
+                let lv = left.contains(.variable)
+                let rv = right.contains(.variable)
+                guard lv || rv else {
+                    throw SolverError.InternalError.variableHasMagicallyDisappeared
+                }
+                if lv && rv {
                     fatalError()
+                }
+                if lv {
+                    //var on left
+                    // e.g. x-5 = 10 -> x = 10+5
+                    let newLeft = left
+                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .addition, right: right)
+                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    return try newEquation.solve(printSteps: printSteps)
+                } else {
+                    //var on right
+                    // e.g. 1-x = 2 -> 1 = 2+x
+                    let newLeft = left
+                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .addition, right: right)
+                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    return try newEquation.solve(printSteps: printSteps)
                 }
             case .multiplication:
                 return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .division, printSteps: printSteps) { (first, second) in
@@ -374,6 +394,10 @@ public indirect enum ResolvedExpression: Equatable {
                     let newLeft = ResolvedExpression.binaryOperation(left: left, operator: .division, right: nonVariableSide)
                     let newRight = right
                     let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    if printSteps {
+                        //print that skipped step
+                        print(left.toString(), "=", ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .multiplication, right: .variable).toString())
+                    }
                     return try newEquation.solve(printSteps: printSteps)
                 }
             case .exponentiation:
