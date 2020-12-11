@@ -46,7 +46,7 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
                 str.append(c)
                 next()
                 if idx >= input.endIndex || !("0"..."9").contains(c) {
-                    throw Error.numberEndingInDot(lexeme: String(str))
+                    throw SolverError.ParseError.numberEndingInDot(lexeme: String(str))
                 }
                 while idx < input.endIndex && ("0"..."9").contains(c) {
                     str.append(c)
@@ -58,7 +58,7 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
             var str: [Character] = ["0", "."]
             next()
             if idx >= input.endIndex || !("0"..."9").contains(c) {
-                throw Error.loneDot
+                throw SolverError.ParseError.loneDot
             }
             while idx < input.endIndex && ("0"..."9").contains(c) {
                 str.append(c)
@@ -76,7 +76,7 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
         case "(": tokens.append(.leftParen); next()
         case ")": tokens.append(.rightParen); next()
         default:
-            throw Error.illegalCharacter(char: c)
+            throw SolverError.ParseError.illegalCharacter(char: c)
         }
     }
     return tokens
@@ -96,10 +96,11 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
         idx += 1
         return tokens[idx - 1]
     }
+    var variableName: String? = nil
     func __parse() throws -> ResolvedExpression {
         let tree = try term()
-        if let c = peek() {
-            fatalError("Tokens remaining after parsing (char: \(c), idx: \(idx), out of: \(tokens.count))")
+        if peek() != nil {
+            throw SolverError.ParseError.tokensRemainingAfterParsing(remaining: Array(tokens[idx...]))
         }
         return tree
     }
@@ -139,16 +140,6 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
             return .unaryOperator(operator: .negation, value: try unaryNegation())
         }
         return try exponentiation()
-//        var expr = try exponentiation()
-//        while [.minus].contains(peek()) {
-//            switch next() {
-//            case .minus:
-//                expr = .unaryOperator(operator: .negation, value: try exponentiation())
-//            default:
-//                fatalError("Unreachable code!")
-//            }
-//        }
-//        return expr
     }
     func exponentiation() throws -> ResolvedExpression {
         let base = try factorial()
@@ -169,7 +160,7 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
     }
     func literal() throws -> ResolvedExpression {
         guard let token = peek() else {
-            throw Error.incompleteExpression
+            throw SolverError.ParseError.incompleteExpression
         }
         _ = next()
         switch token {
@@ -181,13 +172,21 @@ func parse(tokens: [LexicalToken]) throws -> ResolvedExpression {
         case .leftParen:
             let expr = try term()
             guard next() == .rightParen else {
-                throw Error.unmatchedOpeningParenthesis
+                throw SolverError.ParseError.unmatchedOpeningParenthesis
             }
             return expr
         case .identifier(let name):
-            fatalError("Variable are not yet implemented (\(name))")
+            if let v = variableName {
+                if v == name {
+                    return .variable
+                } else {
+                    throw SolverError.ParseError.tooManyVariables(newVariable: name)
+                }
+            }
+            variableName = name
+            return .variable
         default:
-            throw Error.unknownToken(token: tokens[idx-1])
+            throw SolverError.ParseError.unknownToken(token: tokens[idx-1])
         }
 //        fatalError("Unreachable code!")
     }
@@ -206,6 +205,7 @@ public indirect enum ResolvedExpression {
     case number(value: Double)
     case binaryOperation(left: ResolvedExpression, operator: BinaryOperator, right: ResolvedExpression)
     case unaryOperator(operator: UnaryOperator, value: ResolvedExpression)
+    case variable
 
     public func resolve() throws -> Double {
         switch self {
@@ -215,6 +215,8 @@ public indirect enum ResolvedExpression {
             return try op.perform(on: left, and: right)
         case let .unaryOperator(op, value):
             return try op.perform(on: value)
+        case .variable:
+            throw SolverError.ResolveError.resolvingVariable
         }
     }
 }
@@ -239,17 +241,6 @@ public enum BinaryOperator {
         case .modulus: return l.truncatingRemainder(dividingBy: r)
         }
     }
-
-    var precedence: Int {
-        switch self {
-        case .addition: return 2
-        case .subtraction: return 2
-        case .multiplication: return 2
-        case .division: return 2
-        case .exponentiation: return 2
-        case .modulus: return 2
-        }
-    }
 }
 
 public enum UnaryOperator {
@@ -263,7 +254,7 @@ public enum UnaryOperator {
             if val == round(val) { //integer
                 return Double(Array(1...Int(val)).reduce(1, *))
             } else {
-                throw Error.nonIntegerFactorial(val: val)
+                throw SolverError.ResolveError.nonIntegerFactorial(val: val)
             }
         case .negation:
             return -val
@@ -271,12 +262,19 @@ public enum UnaryOperator {
     }
 }
 
-public enum Error: Swift.Error {
-    case nonIntegerFactorial(val: Double)
-    case illegalCharacter(char: Character)
-    case numberEndingInDot(lexeme: String)
-    case loneDot
-    case unmatchedOpeningParenthesis
-    case unknownToken(token: LexicalToken)
-    case incompleteExpression
+public enum SolverError: Swift.Error {
+    enum ResolveError: Swift.Error {
+        case resolvingVariable
+        case nonIntegerFactorial(val: Double)
+    }
+    enum ParseError: Swift.Error {
+        case illegalCharacter(char: Character)
+        case numberEndingInDot(lexeme: String)
+        case loneDot
+        case unmatchedOpeningParenthesis
+        case unknownToken(token: LexicalToken)
+        case incompleteExpression
+        case tokensRemainingAfterParsing(remaining: [LexicalToken])
+        case tooManyVariables(newVariable: String)
+    }
 }

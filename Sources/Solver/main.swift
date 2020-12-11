@@ -1,19 +1,4 @@
 import SolverKit
-
-//let expression = ResolvedExpression.binaryOperation(left: .unaryOperator(operator: .negation, value: .number(value: 2)), operator: .multiplication, right: .unaryOperator(operator: .factorial, value: .number(value: 3.1)))
-//
-//
-//dump(expression)
-//do {
-//    print(try expression.resolve())
-//} catch let SolverKit.Error.nonIntegerFactorial(val) {
-//    print("Attempted to take the factorial of a non-integer value (\(val))")
-//}
-//do {
-//    dump(try parse("-2*3.1!"))
-//} catch let SolverKit.Error.illegalCharacter(char) {
-//    print("Attempted to parse illegal character (\(char))")
-//}
 import ArgumentParser
 import Rainbow
 
@@ -49,29 +34,25 @@ struct Solver: ParsableCommand {
         defaultSubcommand: nil,
         helpNames: .shortAndLong)
 
-    @Argument var equation: String?
+    @Argument(help: .init("The equation to evaluate. If not given, reads from standard input.", discussion: "This can either be an expression (no variables, no equals sign), in which case it will be evaluated, or an equation (one variable, one equals sign), in which case the command will attempt to solve for the variable.")) var equation: String?
 
     func run() throws {
         if let eq = equation {
-            do {
-                let tree = try SolverKit.parse(eq)
-                let result = try tree.resolve()
-                print(result)
-            } catch {
-//                print("Error: \(error)")
-                print("Error:".red, error, to: &STDERR)
-            }
+            handle(equation: eq)
         } else {
             while let eq = readLine() {
-                do {
-                    let tree = try SolverKit.parse(eq)
-                    let result = try tree.resolve()
-                    print(result)
-                } catch {
-//                    print("Error: \(error)", to: &STDERR)
-                    print("Error:".red, error, to: &STDERR)
-                }
+                handle(equation: eq)
             }
+        }
+    }
+
+    private func handle(equation: String) {
+        do {
+            let tree = try SolverKit.parse(equation)
+            let result = try tree.resolve()
+            print(result)
+        } catch {
+            print("Error:".red, error, to: &STDERR)
         }
     }
 }
