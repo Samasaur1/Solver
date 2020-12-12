@@ -413,7 +413,26 @@ public indirect enum ResolvedExpression: Equatable {
                     return try newEquation.solve(printSteps: printSteps)
                 }
             case .exponentiation:
-                throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside an exponent")
+                let lv = left.contains(.variable)
+                let rv = right.contains(.variable)
+                guard lv || rv else {
+                    throw SolverError.InternalError.variableHasMagicallyDisappeared
+                }
+                if lv && rv {
+                    throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in the base and the exponent")
+                }
+                if lv {
+                    //var on left (in base)
+                    //x^2 = 4 -> x = 4^(1/2)
+                    let newLeft = left
+                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .exponentiation, right: .binaryOperation(left: .number(value: 1), operator: .division, right: right))
+                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    return try newEquation.solve(printSteps: printSteps)
+                } else {
+                    //var on right (in exponent)
+                    //2^x = 4 -> x*log(2)=log(4)
+                    throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside an exponent")
+                }
             case .modulus:
                 throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside a modulo")
             }
