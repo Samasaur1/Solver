@@ -6,6 +6,8 @@ public enum LexicalToken: Equatable {
 
     case leftParen, rightParen
 
+    case verticalBar
+
     case equals
 
     //binary operators
@@ -78,6 +80,7 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
         case "(": tokens.append(.leftParen); next()
         case ")": tokens.append(.rightParen); next()
         case "=": tokens.append(.equals); next()
+        case "|": tokens.append(.verticalBar); next()
         default:
             throw SolverError.ParseError.illegalCharacter(char: c)
         }
@@ -101,11 +104,11 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
     }
     var variableName: String? = nil
     func __parse() throws -> ResolvedExpression {
-        let tree = try term()
+        let tree = try expression()
         if let token = peek() {
             if token == .equals {
                 _ = next()
-                let right = try term()
+                let right = try expression()
                 if peek() != nil {
                     throw SolverError.ParseError.tokensRemainingAfterParsing(remaining: Array(tokens[idx...]))
                 }
@@ -114,6 +117,9 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
             throw SolverError.ParseError.tokensRemainingAfterParsing(remaining: Array(tokens[idx...]))
         }
         return tree
+    }
+    func expression() throws -> ResolvedExpression {
+        return try term()
     }
     func term() throws -> ResolvedExpression {
         var expr = try factor()
@@ -124,7 +130,7 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
             case .minus:
                 expr = .binaryOperation(left: expr, operator: .subtraction, right: try factor())
             default:
-                fatalError("Unreachable code!")
+                throw SolverError.InternalError.unreachable(reason: "Cannot match non-(plus/minus) inside block only entered upon matching those operators")
             }
         }
         return expr
@@ -140,7 +146,7 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
             case .percent:
                 expr = .binaryOperation(left: expr, operator: .modulus, right: try unaryNegation())
             default:
-                fatalError("Unreachable code!")
+                throw SolverError.InternalError.unreachable(reason: "Cannot match non-(times/divided by/modulo) inside block only entered upon matching those operators")
             }
         }
         return expr
@@ -177,15 +183,21 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
         switch token {
         case .number(let value):
             guard let val = Double(value) else {
-                fatalError("Cannot parse .number token into Double (\(value))")
+                throw SolverError.InternalError.unreachable(reason: "Cannot parse .number token into Double (\(value))")
             }
             return .number(value: val)
         case .leftParen:
-            let expr = try term()
+            let expr = try expression()
             guard next() == .rightParen else {
                 throw SolverError.ParseError.unmatchedOpeningParenthesis
             }
             return expr
+        case .verticalBar:
+            let expr = try expression()
+            guard next() == .verticalBar else {
+                throw SolverError.ParseError.unmatchedAbsoluteValue
+            }
+            return .unaryOperator(operator: .absoluteValue, value: expr)
         case .identifier(let name):
             if let v = variableName {
                 if v == name {
@@ -199,7 +211,6 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
         default:
             throw SolverError.ParseError.unknownToken(token: tokens[idx-1])
         }
-//        fatalError("Unreachable code!")
     }
 
     return (try __parse(), variableName)
@@ -336,12 +347,13 @@ public indirect enum ResolvedExpression: Equatable {
                 let newRight = ResolvedExpression.unaryOperator(operator: .negation, value: nonVariableSide)
                 let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
                 return try newEquation.solve(printSteps: printSteps)
+            case .absoluteValue: throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside an absolute value")
             }
         case let .binaryOperation(left, op, right):
             switch op {
             case .addition:
                 return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .subtraction, printSteps: printSteps) { (first, second) in
-                    fatalError()
+                    throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in both terms")
                 }
             case .subtraction:
                 let lv = left.contains(.variable)
@@ -350,7 +362,7 @@ public indirect enum ResolvedExpression: Equatable {
                     throw SolverError.InternalError.variableHasMagicallyDisappeared
                 }
                 if lv && rv {
-                    fatalError()
+                    throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in the minuend and the subtrahend")
                 }
                 if lv {
                     //var on left
@@ -369,7 +381,7 @@ public indirect enum ResolvedExpression: Equatable {
                 }
             case .multiplication:
                 return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .division, printSteps: printSteps) { (first, second) in
-                    fatalError()
+                    throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in both factors")
                 }
             case .division:
                 let lv = left.contains(.variable)
@@ -378,7 +390,7 @@ public indirect enum ResolvedExpression: Equatable {
                     throw SolverError.InternalError.variableHasMagicallyDisappeared
                 }
                 if lv && rv {
-                    fatalError()
+                    throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in the dividend and divisor")
                 }
                 if lv {
                     //var on left
@@ -468,6 +480,7 @@ public enum BinaryOperator {
 public enum UnaryOperator {
     case factorial
     case negation
+    case absoluteValue
 
     func perform(on value: ResolvedExpression) throws -> Double {
         let val = try value.resolve()
@@ -480,10 +493,15 @@ public enum UnaryOperator {
             }
         case .negation:
             return -val
+        case .absoluteValue:
+            return abs(val)
         }
     }
 
     func symbol(on expr: ResolvedExpression) -> String {
+        if self == .absoluteValue {
+            return "|\(expr.toString())|"
+        }
         let exprOutput: String
         switch expr {
         case .number, .variable, .unaryOperator:
@@ -496,6 +514,7 @@ public enum UnaryOperator {
             return "\(exprOutput)!"
         case .negation:
             return "-\(exprOutput)"
+        case .absoluteValue: fatalError("Already handled")
         }
     }
 }
@@ -515,6 +534,7 @@ public enum SolverError: Swift.Error {
         case incompleteExpression
         case tokensRemainingAfterParsing(remaining: [LexicalToken])
         case tooManyVariables(newVariable: String)
+        case unmatchedAbsoluteValue
     }
     public enum SolveError: Swift.Error {
         case solvingExpression
