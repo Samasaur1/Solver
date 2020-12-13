@@ -483,6 +483,10 @@ extension Expression { //Solving
                     if let d1 = first.nonVariableDegree, let d2 = second.nonVariableDegree {
                         return try Expression.equation(left: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .addition, right: d2)), right: nonVariableSide).solve(printSteps: printSteps)
                     }
+                    //(c1*(x^d1))*(c2*(x^d2)) -> (c1*c2)*(x^(d1+d2))
+                    if let (c1, d1) = first.nonVariableCoefficientAndDegree, let (c2, d2) = second.nonVariableCoefficientAndDegree {
+                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .multiplication, right: c2), operator: .multiplication, right: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .addition, right: d2))), right: nonVariableSide).solve(printSteps: printSteps)
+                    }
                     throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in both factors")
                 }
             case .division:
@@ -617,6 +621,37 @@ extension Expression { //Solving
             default: return nil
             }
         case .variable: return .number(value: 1)
+        default: return nil
+        }
+        return nil
+    }
+
+    //Given ax^b, returns (a, b) iff x is not in a or b
+    var nonVariableCoefficientAndDegree: (Expression, Expression)? {
+        //If there is no coefficient
+        if let nvd = nonVariableDegree {
+            return (.number(value: 1), nvd)
+        }
+        //We expect (a * (x ^ b))
+        switch self {
+        case let .binaryOperation(left, op, right):
+            switch op {
+            case .multiplication:
+                guard !left.contains(.variable) else {
+                    return nil
+                }
+                if case let .binaryOperation(base, op2, exp) = right, op2 == .exponentiation {
+                    guard base == .variable else {
+                        return nil
+                    }
+                    guard !exp.contains(.variable) else {
+                        return nil
+                    }
+                    return (left, exp)
+                }
+            default: return nil
+            }
+        case .variable: return (.number(value: 1), .number(value: 1))
         default: return nil
         }
         return nil
