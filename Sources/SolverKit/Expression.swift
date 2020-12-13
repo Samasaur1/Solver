@@ -386,6 +386,9 @@ public indirect enum Expression: Equatable {
                     throw SolverError.InternalError.variableHasMagicallyDisappeared
                 }
                 if lv && rv {
+                    if let c1 = left.nonVariableCoefficient, let c2 = right.nonVariableCoefficient {
+                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .subtraction, right: c2), operator: .multiplication, right: .variable), right: nonVariableSide).solve(printSteps: printSteps)
+                    }
                     throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in the minuend and the subtrahend")
                 }
                 if lv {
