@@ -88,7 +88,7 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
     return tokens
 }
 
-func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
+func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
 //    print("Entering \(#function)")
 //    print("Token count: \(tokens.count)")
     var idx = 0
@@ -103,7 +103,7 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
         return tokens[idx - 1]
     }
     var variableName: String? = nil
-    func __parse() throws -> ResolvedExpression {
+    func __parse() throws -> Expression {
         let tree = try expression()
         if let token = peek() {
             if token == .equals {
@@ -118,10 +118,10 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
         }
         return tree
     }
-    func expression() throws -> ResolvedExpression {
+    func expression() throws -> Expression {
         return try term()
     }
-    func term() throws -> ResolvedExpression {
+    func term() throws -> Expression {
         var expr = try factor()
         while [.plus, .minus].contains(peek()) {
             switch next() {
@@ -135,7 +135,7 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
         }
         return expr
     }
-    func factor() throws -> ResolvedExpression {
+    func factor() throws -> Expression {
         var expr = try unaryNegation()
         while [.times, .slash, .percent].contains(peek()) {
             switch next() {
@@ -151,14 +151,14 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
         }
         return expr
     }
-    func unaryNegation() throws -> ResolvedExpression {
+    func unaryNegation() throws -> Expression {
         if .minus == peek() {
             _ = next()
             return .unaryOperator(operator: .negation, value: try unaryNegation())
         }
         return try exponentiation()
     }
-    func exponentiation() throws -> ResolvedExpression {
+    func exponentiation() throws -> Expression {
         let base = try factorial()
         if .caret == peek() {
             _ = next()
@@ -167,7 +167,7 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
         }
         return base
     }
-    func factorial() throws -> ResolvedExpression {
+    func factorial() throws -> Expression {
         let lit = try literal() //NOTE: this does not handle more than one factorial in a row
         if .exclamationPoint == peek() {
             _ = next()
@@ -175,7 +175,7 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
         }
         return lit
     }
-    func literal() throws -> ResolvedExpression {
+    func literal() throws -> Expression {
         guard let token = peek() else {
             throw SolverError.ParseError.incompleteExpression
         }
@@ -215,20 +215,16 @@ func parse(tokens: [LexicalToken]) throws -> (ResolvedExpression, String?) {
 
     return (try __parse(), variableName)
 }
-public func parse(_ input: String) throws -> (ResolvedExpression, String?) {
+public func parse(_ input: String) throws -> (Expression, String?) {
     return try parse(tokens: tokenize(input))
 }
 
-enum Expression {
-
-}
-
-public indirect enum ResolvedExpression: Equatable {
+public indirect enum Expression: Equatable {
     case number(value: Double)
-    case binaryOperation(left: ResolvedExpression, operator: BinaryOperator, right: ResolvedExpression)
-    case unaryOperator(operator: UnaryOperator, value: ResolvedExpression)
+    case binaryOperation(left: Expression, operator: BinaryOperator, right: Expression)
+    case unaryOperator(operator: UnaryOperator, value: Expression)
     case variable
-    case equation(left: ResolvedExpression, right: ResolvedExpression)
+    case equation(left: Expression, right: Expression)
 
     public func toString() -> String {
         switch self {
@@ -270,10 +266,10 @@ public indirect enum ResolvedExpression: Equatable {
         }
     }
 
-    func contains(_ subexpr: ResolvedExpression) -> Bool {
+    func contains(_ subexpr: Expression) -> Bool {
         if self == subexpr { return true }
         switch self {
-        case .number: return self == subexpr
+        case .number: return false
         case let .binaryOperation(left, _, right):
             return left.contains(subexpr) || right.contains(subexpr)
         case let .unaryOperator(_, value):
@@ -284,7 +280,7 @@ public indirect enum ResolvedExpression: Equatable {
         }
     }
 
-    public func solve(printSteps: Bool) throws -> ResolvedExpression {
+    public func solve(printSteps: Bool) throws -> Expression {
         if printSteps { print(self.toString()) }
         guard case let .equation(left, right) = self else {
             throw SolverError.SolveError.solvingExpression
@@ -299,15 +295,15 @@ public indirect enum ResolvedExpression: Equatable {
             throw SolverError.InternalError.notYetSupported(description: "x=x")
         case (.unaryOperator(let op1, let value1), .unaryOperator(let op2, let value2)):
             if op1 == op2 {
-                return try ResolvedExpression.equation(left: value1, right: value2).solve(printSteps: printSteps)
+                return try Expression.equation(left: value1, right: value2).solve(printSteps: printSteps)
             }
         case (let .binaryOperation(left1, op1, right1), let .binaryOperation(left2, op2, right2)):
             if (op1 == op2) {
                 if (left1 == left2) {
-                    return try ResolvedExpression.equation(left: right1, right: right2).solve(printSteps: printSteps)
+                    return try Expression.equation(left: right1, right: right2).solve(printSteps: printSteps)
                 }
                 if (right1 == right2) {
-                    return try ResolvedExpression.equation(left: left1, right: left2).solve(printSteps: printSteps)
+                    return try Expression.equation(left: left1, right: left2).solve(printSteps: printSteps)
                 }
             }
         default: break
@@ -326,15 +322,15 @@ public indirect enum ResolvedExpression: Equatable {
                 throw SolverError.InternalError.notYetSupported(description: "Solving equations where there is a variable on both sides")
             } else {
                 //variable on left but not right
-                return try ResolvedExpression.solve(variableSide: left, nonVariableSide: right, printSteps: printSteps)
+                return try Expression.solve(variableSide: left, nonVariableSide: right, printSteps: printSteps)
             }
         } else {
             //variable on right but not left
-            return try ResolvedExpression.solve(variableSide: right, nonVariableSide: left, printSteps: printSteps)
+            return try Expression.solve(variableSide: right, nonVariableSide: left, printSteps: printSteps)
         }
     }
 
-    fileprivate static func solve(variableSide: ResolvedExpression, nonVariableSide: ResolvedExpression, printSteps: Bool) throws -> ResolvedExpression {
+    fileprivate static func solve(variableSide: Expression, nonVariableSide: Expression, printSteps: Bool) throws -> Expression {
         switch variableSide {
         case .number, .equation:
             throw SolverError.InternalError.unreachable(reason: "This function cannot be called where the variable side of an equation is another equation or has no variable")
@@ -344,8 +340,8 @@ public indirect enum ResolvedExpression: Equatable {
             case .factorial: throw SolverError.SolveError.variableInFactorial
             case .negation:
                 let newLeft = value
-                let newRight = ResolvedExpression.unaryOperator(operator: .negation, value: nonVariableSide)
-                let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                let newRight = Expression.unaryOperator(operator: .negation, value: nonVariableSide)
+                let newEquation = Expression.equation(left: newLeft, right: newRight)
                 return try newEquation.solve(printSteps: printSteps)
             case .absoluteValue: throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside an absolute value")
             }
@@ -368,15 +364,15 @@ public indirect enum ResolvedExpression: Equatable {
                     //var on left
                     // e.g. x-5 = 10 -> x = 10+5
                     let newLeft = left
-                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .addition, right: right)
-                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .addition, right: right)
+                    let newEquation = Expression.equation(left: newLeft, right: newRight)
                     return try newEquation.solve(printSteps: printSteps)
                 } else {
                     //var on right
                     // e.g. 1-x = 2 -> 1 = 2+x
                     let newLeft = left
-                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .addition, right: right)
-                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .addition, right: right)
+                    let newEquation = Expression.equation(left: newLeft, right: newRight)
                     return try newEquation.solve(printSteps: printSteps)
                 }
             case .multiplication:
@@ -396,19 +392,19 @@ public indirect enum ResolvedExpression: Equatable {
                     //var on left
                     // e.g. x/5 = 10 -> x = 10*5
                     let newLeft = left
-                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .multiplication, right: right)
-                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .multiplication, right: right)
+                    let newEquation = Expression.equation(left: newLeft, right: newRight)
                     return try newEquation.solve(printSteps: printSteps)
                 } else {
                     //var on right
                     // e.g. 1/x = 2 -> 1/2 = x
                     // i could go to 1 = 2*x, but this way I just skip a step
-                    let newLeft = ResolvedExpression.binaryOperation(left: left, operator: .division, right: nonVariableSide)
+                    let newLeft = Expression.binaryOperation(left: left, operator: .division, right: nonVariableSide)
                     let newRight = right
-                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    let newEquation = Expression.equation(left: newLeft, right: newRight)
                     if printSteps {
                         //print that skipped step
-                        print(left.toString(), "=", ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .multiplication, right: .variable).toString())
+                        print(left.toString(), "=", Expression.binaryOperation(left: nonVariableSide, operator: .multiplication, right: .variable).toString())
                     }
                     return try newEquation.solve(printSteps: printSteps)
                 }
@@ -425,8 +421,8 @@ public indirect enum ResolvedExpression: Equatable {
                     //var on left (in base)
                     //x^2 = 4 -> x = 4^(1/2)
                     let newLeft = left
-                    let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: .exponentiation, right: .binaryOperation(left: .number(value: 1), operator: .division, right: right))
-                    let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+                    let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .exponentiation, right: .binaryOperation(left: .number(value: 1), operator: .division, right: right))
+                    let newEquation = Expression.equation(left: newLeft, right: newRight)
                     return try newEquation.solve(printSteps: printSteps)
                 } else {
                     //var on right (in exponent)
@@ -439,7 +435,7 @@ public indirect enum ResolvedExpression: Equatable {
         }
     }
 
-    fileprivate static func commutativeBinaryOperation(left: ResolvedExpression, right: ResolvedExpression, oneVar: (_ varSide: ResolvedExpression, _ nonVarSide: ResolvedExpression) throws -> ResolvedExpression, twoVars: (ResolvedExpression, ResolvedExpression) throws -> ResolvedExpression) throws -> ResolvedExpression {
+    fileprivate static func commutativeBinaryOperation(left: Expression, right: Expression, oneVar: (_ varSide: Expression, _ nonVarSide: Expression) throws -> Expression, twoVars: (Expression, Expression) throws -> Expression) throws -> Expression {
         let lv = left.contains(.variable)
         let rv = right.contains(.variable)
         guard lv || rv else {
@@ -453,11 +449,11 @@ public indirect enum ResolvedExpression: Equatable {
         }
         return try oneVar(right, left)
     }
-    fileprivate static func simpleCommutativeBinaryOperation(left: ResolvedExpression, right: ResolvedExpression, nonVariableSide: ResolvedExpression, invertedOperator: BinaryOperator, printSteps: Bool, bothSidesHaveVars twoVars: (ResolvedExpression, ResolvedExpression) throws -> ResolvedExpression) throws -> ResolvedExpression {
+    fileprivate static func simpleCommutativeBinaryOperation(left: Expression, right: Expression, nonVariableSide: Expression, invertedOperator: BinaryOperator, printSteps: Bool, bothSidesHaveVars twoVars: (Expression, Expression) throws -> Expression) throws -> Expression {
         return try commutativeBinaryOperation(left: left, right: right, oneVar: { (varSide, nonVarSide) in
             let newLeft = varSide
-            let newRight = ResolvedExpression.binaryOperation(left: nonVariableSide, operator: invertedOperator, right: nonVarSide)
-            let newEquation = ResolvedExpression.equation(left: newLeft, right: newRight)
+            let newRight = Expression.binaryOperation(left: nonVariableSide, operator: invertedOperator, right: nonVarSide)
+            let newEquation = Expression.equation(left: newLeft, right: newRight)
             return try newEquation.solve(printSteps: printSteps)
         }, twoVars: twoVars)
     }
@@ -471,7 +467,7 @@ public enum BinaryOperator {
     case exponentiation
     case modulus
 
-    func perform(on left: ResolvedExpression, and right: ResolvedExpression) throws -> Double {
+    func perform(on left: Expression, and right: Expression) throws -> Double {
         let l = try left.resolve()
         let r = try right.resolve()
         switch self {
@@ -501,7 +497,7 @@ public enum UnaryOperator {
     case negation
     case absoluteValue
 
-    func perform(on value: ResolvedExpression) throws -> Double {
+    func perform(on value: Expression) throws -> Double {
         let val = try value.resolve()
         switch self {
         case .factorial:
@@ -517,7 +513,7 @@ public enum UnaryOperator {
         }
     }
 
-    func symbol(on expr: ResolvedExpression) -> String {
+    func symbol(on expr: Expression) -> String {
         if self == .absoluteValue {
             return "|\(expr.toString())|"
         }

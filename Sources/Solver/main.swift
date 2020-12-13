@@ -58,7 +58,7 @@ struct Solver: ParsableCommand {
         } catch SolverError.ResolveError.resolvingEquation {
             do {
                 let (tree, variableName) = try SolverKit.parse(equation)
-                let resultTree: ResolvedExpression
+                let resultTree: Expression
                 if showSteps {
                     resultTree = try tree.solve(printSteps: true)
                     print(variableName!, "=", resultTree.toString())
