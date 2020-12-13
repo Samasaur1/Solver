@@ -1,5 +1,7 @@
 import Foundation
 
+//MARK: - Tokenization and Parsing
+
 public enum LexicalToken: Equatable {
     case number(value: String)
     case identifier(name: String)
@@ -20,6 +22,7 @@ public enum LexicalToken: Equatable {
     case exclamationPoint
 }
 
+//MARK: Tokenization
 func tokenize(_ input: String) throws -> [LexicalToken] {
     var idx = input.startIndex
     func next() {
@@ -88,9 +91,8 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
     return tokens
 }
 
+//MARK: Parsing
 func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
-//    print("Entering \(#function)")
-//    print("Token count: \(tokens.count)")
     var idx = 0
     func peek() -> LexicalToken? {
         if idx < tokens.count {
@@ -219,13 +221,16 @@ public func parse(_ input: String) throws -> (Expression, String?) {
     return try parse(tokens: tokenize(input))
 }
 
+//MARK: - Expressions
 public indirect enum Expression: Equatable {
     case number(value: Double)
     case binaryOperation(left: Expression, operator: BinaryOperator, right: Expression)
     case unaryOperator(operator: UnaryOperator, value: Expression)
     case variable
     case equation(left: Expression, right: Expression)
+}
 
+extension Expression { //Output
     public func toString() -> String {
         switch self {
         case let .number(value): return String(value)
@@ -250,7 +255,9 @@ public indirect enum Expression: Equatable {
         case let .equation(left, right): return "\(left.toString()) = \(right.toString())"
         }
     }
+}
 
+extension Expression { //Evaluation
     public func resolve() throws -> Double {
         switch self {
         case let .number(value):
@@ -265,7 +272,9 @@ public indirect enum Expression: Equatable {
             throw SolverError.ResolveError.resolvingEquation
         }
     }
+}
 
+extension Expression { //Utils (?)
     func contains(_ subexpr: Expression) -> Bool {
         if self == subexpr { return true }
         switch self {
@@ -279,7 +288,70 @@ public indirect enum Expression: Equatable {
             return left.contains(subexpr) || right.contains(subexpr)
         }
     }
+    // **[WIP] Unknown if needed**
+    func replace(_ subexpr: Expression, with new: Expression) -> Expression {
+        if self == subexpr { return new }
+        switch self {
+        case .number: return self
+        case let .binaryOperation(left, op, right):
+            return .binaryOperation(left: left.replace(subexpr, with: new), operator: op, right: right.replace(subexpr, with: new))
+        case let .unaryOperator(op, value):
+            return .unaryOperator(operator: op, value: value.replace(subexpr, with: new))
+        case .variable: return self
+        case let .equation(left, right):
+            return .equation(left: left.replace(subexpr, with: new), right: right.replace(subexpr, with: new))
+        }
+    }
+    func simplify() -> Expression {
+        switch self {
+        case .number: return self
+        case .variable: return self
+        case let .unaryOperator(op, value):
+            let v = value.simplify()
+            if op == .negation {
+                if case let .unaryOperator(op2, value2) = v {
+                    if op2 == .negation {
+                        return value2.simplify()
+                    }
+                }
+            }
+            return .unaryOperator(operator: op, value: v)
+        case let .binaryOperation(left, operator: op, right):
+            let l = left.simplify()
+            let r = right.simplify()
+            switch op {
+            case .addition:
+                switch (l, r) {
+                case let (.number(val1), .number(val2)): return .number(value: val1 + val2)
+                case (.number, _), (_, .number): break
+                case (.variable, .variable): return .binaryOperation(left: .number(value: 2), operator: .multiplication, right: .variable)
+//                case (.variable, let .binaryOperation(left: l1, operator: op1, right: r1)): //TODO
+                default: break //TODO
+                }
+            case .subtraction:
+                break
+            case .multiplication:
+                break
+            case .division:
+                break
+            case .exponentiation:
+                break
+            case .modulus:
+                break
+            }
+            return .binaryOperation(left: l, operator: op, right: r)
+        case .equation(left: let left, right: let right):
+            let l = left.simplify()
+            let r = right.simplify()
+            //TODO (?)
+            return .equation(left: l, right: r)
+        }
+    }
+    // **End WIP**
+}
 
+//MARK: Expression: Solving
+extension Expression { //Solving
     public func solve(printSteps: Bool) throws -> Expression {
         if printSteps { print(self.toString()) }
         guard case let .equation(left, right) = self else {
@@ -521,6 +593,7 @@ public indirect enum Expression: Equatable {
     }
 }
 
+//MARK: - Operators
 public enum BinaryOperator {
     case addition
     case subtraction
@@ -596,6 +669,7 @@ public enum UnaryOperator {
     }
 }
 
+//MARK: - Errors
 public enum SolverError: Swift.Error {
     public enum ResolveError: Swift.Error {
         case resolvingVariable
