@@ -349,8 +349,8 @@ public indirect enum Expression: Equatable {
             switch op {
             case .addition:
                 return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .subtraction, printSteps: printSteps) { (first, second) in
-                    if first == .variable && second == .variable {
-                        return try Expression.equation(left: Expression.binaryOperation(left: .number(value: 2), operator: .multiplication, right: .variable), right: nonVariableSide).solve(printSteps: printSteps)
+                    if let c1 = first.nonVariableCoefficient, let c2 = second.nonVariableCoefficient {
+                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .addition, right: c2), operator: .multiplication, right: .variable), right: nonVariableSide).solve(printSteps: printSteps)
                     }
 //                    if first == .variable {
 //                        switch second {
@@ -484,6 +484,37 @@ public indirect enum Expression: Equatable {
             let newEquation = Expression.equation(left: newLeft, right: newRight)
             return try newEquation.solve(printSteps: printSteps)
         }, twoVars: twoVars)
+    }
+
+    var nonVariableCoefficient: Expression? {
+        switch self {
+        case let .binaryOperation(left, op, right):
+            switch op {
+            case .multiplication:
+                let lv = left.contains(.variable)
+                let rv = right.contains(.variable)
+                guard lv || rv else {
+                    return nil
+                }
+                guard !(lv && rv) else {
+                    return nil
+                }
+                if lv {
+                    if left == .variable {
+                        return right
+                    }
+                }
+                if rv {
+                    if right == .variable {
+                        return left
+                    }
+                }
+            default: return nil
+            }
+        case .variable: return .number(value: 1)
+        default: return nil
+        }
+        return nil
     }
 }
 
