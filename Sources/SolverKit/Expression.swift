@@ -480,6 +480,9 @@ extension Expression { //Solving
                 }
             case .multiplication:
                 return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .division, printSteps: printSteps) { (first, second) in
+                    if let d1 = first.nonVariableDegree, let d2 = second.nonVariableDegree {
+                        return try Expression.equation(left: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .addition, right: d2)), right: nonVariableSide).solve(printSteps: printSteps)
+                    }
                     throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in both factors")
                 }
             case .division:
@@ -489,6 +492,9 @@ extension Expression { //Solving
                     throw SolverError.InternalError.variableHasMagicallyDisappeared
                 }
                 if lv && rv {
+                    if let d1 = left.nonVariableDegree, let d2 = right.nonVariableDegree {
+                        return try Expression.equation(left: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .subtraction, right: d2)), right: nonVariableSide).solve(printSteps: printSteps)
+                    }
                     throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in the dividend and divisor")
                 }
                 if lv {
@@ -561,6 +567,8 @@ extension Expression { //Solving
         }, twoVars: twoVars)
     }
 
+    //Given 5x, returns 5. Given 5x^1, returns nil
+    //Given ax, returns a. Any other form (even without mathematical impact) will return nil
     var nonVariableCoefficient: Expression? {
         switch self {
         case let .binaryOperation(left, op, right):
@@ -583,6 +591,28 @@ extension Expression { //Solving
                     if right == .variable {
                         return left
                     }
+                }
+            default: return nil
+            }
+        case .variable: return .number(value: 1)
+        default: return nil
+        }
+        return nil
+    }
+
+    //Given x^2, returns 2. Given 1x^2, returns nil
+    var nonVariableDegree: Expression? {
+        switch self {
+        case let .binaryOperation(left, op, right):
+            switch op {
+            case .exponentiation:
+                let lv = left.contains(.variable)
+                let rv = right.contains(.variable)
+                guard lv && !rv else {
+                    return nil
+                }
+                if left == .variable {
+                    return right
                 }
             default: return nil
             }
