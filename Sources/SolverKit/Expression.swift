@@ -349,6 +349,34 @@ public indirect enum Expression: Equatable {
             switch op {
             case .addition:
                 return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .subtraction, printSteps: printSteps) { (first, second) in
+                    if first == .variable && second == .variable {
+                        return try Expression.equation(left: Expression.binaryOperation(left: .number(value: 2), operator: .multiplication, right: .variable), right: nonVariableSide).solve(printSteps: printSteps)
+                    }
+//                    if first == .variable {
+//                        switch second {
+//                        case .number, .equation: throw SolverError.InternalError.unreachable(reason: "Cannot reach two-var branch when only one side is a var")
+//                        case .variable: fatalError("see above")
+//                        case let .unaryOperator(op, value):
+//                            switch op {
+//                            case .negation:
+//                                break
+//                            }
+//                        case let .binaryOperation(left, op, right):
+//                            switch op {
+//                            case .addition:
+//                            case .subtraction:
+//                            case .multiplication:
+//                                if left == .variable {
+//                                    //x + (x*5) = 3 -> (5 + 1)*x=3
+//                                    //x+(x*(2*x))=3 -> ((2*x)+1)*x=3
+//                                    return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: right, operator: .addition, right: .number(value: 1)), operator: .multiplication, right: .variable), right: nonVariableSide).solve(printSteps: printSteps)
+//                                }
+//                            case .division:
+//                            case .exponentiation:
+//                            case .modulus:
+//                            }
+//                        }
+//                    }
                     throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in both terms")
                 }
             case .subtraction:
