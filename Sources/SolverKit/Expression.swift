@@ -228,6 +228,7 @@ public indirect enum Expression: Equatable {
     case unaryOperator(operator: UnaryOperator, value: Expression)
     case variable
     case equation(left: Expression, right: Expression)
+    case multiplePossibilities(possiblities: [Expression])
 }
 
 extension Expression { //Output
@@ -253,15 +254,21 @@ extension Expression { //Output
         case let .unaryOperator(op, value): return op.symbol(on: value)
         case .variable: return "x"
         case let .equation(left, right): return "\(left.toString()) = \(right.toString())"
+        case .multiplePossibilities(possiblities: let list):
+            switch list.count {
+            case 0: return "{}"
+            case 1: return list[0].toString()
+            default: return "{ \(list.map { $0.toString() }.joined(separator: ", ")) }"
+            }
         }
     }
 }
 
 extension Expression { //Evaluation
-    public func resolve() throws -> Double {
+    public func resolve() throws -> [Double] {
         switch self {
         case let .number(value):
-            return value
+            return [value]
         case let .binaryOperation(left, op, right):
             return try op.perform(on: left, and: right)
         case let .unaryOperator(op, value):
@@ -270,6 +277,8 @@ extension Expression { //Evaluation
             throw SolverError.ResolveError.resolvingVariable
         case .equation:
             throw SolverError.ResolveError.resolvingEquation
+        case .multiplePossibilities(possiblities: let list):
+            return try list.flatMap { try $0.resolve() }
         }
     }
 }
@@ -286,6 +295,8 @@ extension Expression { //Utils (?)
         case .variable: return self == subexpr
         case let .equation(left, right):
             return left.contains(subexpr) || right.contains(subexpr)
+        case .multiplePossibilities(possiblities: let list):
+            return list.contains { $0.contains(subexpr) }
         }
     }
     // **[WIP] Unknown if needed**
@@ -300,6 +311,8 @@ extension Expression { //Utils (?)
         case .variable: return self
         case let .equation(left, right):
             return .equation(left: left.replace(subexpr, with: new), right: right.replace(subexpr, with: new))
+        case .multiplePossibilities(possiblities: let list):
+            return .multiplePossibilities(possiblities: list.map { $0.replace(subexpr, with: new) })
         }
     }
     func simplify() -> Expression {
@@ -345,6 +358,8 @@ extension Expression { //Utils (?)
             let r = right.simplify()
             //TODO (?)
             return .equation(left: l, right: r)
+        case .multiplePossibilities(possiblities: let list):
+            return .multiplePossibilities(possiblities: list.map { $0.simplify() })
         }
     }
     // **End WIP**
@@ -415,7 +430,12 @@ extension Expression { //Solving
                 let newRight = Expression.unaryOperator(operator: .negation, value: nonVariableSide)
                 let newEquation = Expression.equation(left: newLeft, right: newRight)
                 return try newEquation.solve(printSteps: printSteps)
-            case .absoluteValue: throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside an absolute value")
+            case .absoluteValue:
+                let newLeft = value
+                let negativeOppositeSide = Expression.unaryOperator(operator: .negation, value: nonVariableSide)
+                let newRight = Expression.multiplePossibilities(possiblities: [nonVariableSide, negativeOppositeSide])
+                let newEquation = Expression.equation(left: newLeft, right: newRight)
+                return try newEquation.solve(printSteps: printSteps)
             }
         case let .binaryOperation(left, op, right):
             switch op {
@@ -545,6 +565,8 @@ extension Expression { //Solving
             case .modulus:
                 throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside a modulo")
             }
+        case .multiplePossibilities(possiblities: let list):
+            throw SolverError.InternalError.notYetSupported(description: "variable inside multiple possibilities \(list)")
         }
     }
 
@@ -667,17 +689,23 @@ public enum BinaryOperator {
     case exponentiation
     case modulus
 
-    func perform(on left: Expression, and right: Expression) throws -> Double {
-        let l = try left.resolve()
-        let r = try right.resolve()
-        switch self {
-        case .addition: return l + r
-        case .subtraction: return l - r
-        case .multiplication: return l * r
-        case .division: return l / r
-        case .exponentiation: return pow(l, r)
-        case .modulus: return l.truncatingRemainder(dividingBy: r)
+    func perform(on left: Expression, and right: Expression) throws -> [Double] {
+        let lef = try left.resolve()
+        let rig = try right.resolve()
+        var results = [Double]()
+        for l in lef {
+            for r in rig {
+                switch self {
+                case .addition: results.append(l + r)
+                case .subtraction: results.append(l - r)
+                case .multiplication: results.append(l * r)
+                case .division: results.append(l / r)
+                case .exponentiation: results.append(pow(l, r))
+                case .modulus: results.append(l.truncatingRemainder(dividingBy: r))
+                }
+            }
         }
+        return results
     }
 
     var symbol: String {
@@ -697,20 +725,24 @@ public enum UnaryOperator {
     case negation
     case absoluteValue
 
-    func perform(on value: Expression) throws -> Double {
-        let val = try value.resolve()
-        switch self {
-        case .factorial:
-            if val == round(val) { //integer
-                return Double(Array(1...Int(val)).reduce(1, *))
-            } else {
-                throw SolverError.ResolveError.nonIntegerFactorial(val: val)
+    func perform(on value: Expression) throws -> [Double] {
+        let values = try value.resolve()
+        var results = [Double]()
+        for val in values {
+            switch self {
+            case .factorial:
+                if val == round(val) { //integer
+                    results.append(Double(Array(1...Int(val)).reduce(1, *)))
+                } else {
+                    throw SolverError.ResolveError.nonIntegerFactorial(val: val)
+                }
+            case .negation:
+                results.append(-val)
+            case .absoluteValue:
+                results.append(abs(val))
             }
-        case .negation:
-            return -val
-        case .absoluteValue:
-            return abs(val)
         }
+        return results
     }
 
     func symbol(on expr: Expression) -> String {

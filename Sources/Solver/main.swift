@@ -52,7 +52,11 @@ struct Solver: ParsableCommand {
         do {
             let (tree, _) = try SolverKit.parse(equation)
             let result = try tree.resolve()
-            print(result)
+            switch result.count {
+            case 0: print("{}")
+            case 1: print(result[0])
+            default: print("{ \(result.map { String($0) }.joined(separator: ", ")) }")
+            }
         } catch SolverError.ResolveError.resolvingVariable {
             print("Error:".red, "attempting to evaluate expression with variable inside of it (variables can only be used in equations)", to: &STDERR)
         } catch SolverError.ResolveError.resolvingEquation {
@@ -65,7 +69,12 @@ struct Solver: ParsableCommand {
                 } else {
                     resultTree = try tree.solve(printSteps: false)
                 }
-                print(variableName!, "=", try resultTree.resolve())
+                let res = try resultTree.resolve()
+                switch res.count {
+                case 0: print(variableName!, "= {}")
+                case 1: print(variableName!, "=", res[0])
+                default: print(variableName!, "=", "{", try resultTree.resolve().map { String($0) }.joined(separator: ", "), "}")
+                }
             } catch is SolverError.ParseError {
                 print("Error:".red, "re-parsing the input generated an error — this shouldn't be possible, as parsing is stateless", to: &STDERR)
             } catch SolverError.SolveError.solvingEquationWithoutVariable(let equal) {
