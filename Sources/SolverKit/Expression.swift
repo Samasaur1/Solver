@@ -133,12 +133,15 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
     }
     func term() throws -> Expression {
         var expr = try factor()
-        while [.plus, .minus].contains(peek()) {
+        while [.plus, .minus, .plusMinus].contains(peek()) {
             switch try next() {
             case .plus:
                 expr = .binaryOperation(left: expr, operator: .addition, right: try factor())
             case .minus:
                 expr = .binaryOperation(left: expr, operator: .subtraction, right: try factor())
+            case .plusMinus:
+                let nxt = try factor()
+                expr = .multiplePossibilities(possiblities: [.binaryOperation(left: expr, operator: .addition, right: nxt), .binaryOperation(left: expr, operator: .subtraction, right: nxt)])
             default:
                 throw SolverError.InternalError.unreachable(reason: "Cannot match non-(plus/minus) inside block only entered upon matching those operators")
             }
@@ -165,6 +168,10 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
         if .minus == peek() {
             _ = try next()
             return .unaryOperator(operator: .negation, value: try unaryNegation())
+        } else if .plusMinus == peek() {
+            _ = try next()
+            let nxt = try unaryNegation()
+            return .multiplePossibilities(possiblities: [nxt, .unaryOperator(operator: .negation, value: nxt)])
         }
         return try exponentiation()
     }
