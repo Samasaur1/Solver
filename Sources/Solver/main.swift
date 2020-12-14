@@ -82,6 +82,22 @@ struct Solver: ParsableCommand {
             } catch {
                 print("Error:".red, error, to: &STDERR)
             }
+        } catch SolverError.ParseError.expectedMoreTokens(error: let error) {
+            print("Error:".red, "Unexpected end of input", terminator: "")
+            if let error = error {
+                switch error {
+                case .unmatchedAbsoluteValue:
+                    print(" (expected '|' — closing absolute value)")
+                case .unmatchedOpeningParenthesis:
+                    print(" (expected ')' — closing paren)")
+                case .unmatchedOpeningBrace:
+                    print(" (expected '}' — closing brace)")
+                default:
+                    print("", error)
+                }
+            } else {
+                print()
+            }
         } catch {
             print("Error:".red, error, to: &STDERR)
         }

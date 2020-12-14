@@ -7,7 +7,7 @@ public enum LexicalToken: Equatable {
     case identifier(name: String)
 
     case leftParen, rightParen
-
+    case leftBrace, rightBrace, comma
     case verticalBar
 
     case equals
@@ -20,6 +20,7 @@ public enum LexicalToken: Equatable {
 
     //unary operators
     case exclamationPoint
+    case plusMinus
 }
 
 //MARK: Tokenization
@@ -84,6 +85,10 @@ func tokenize(_ input: String) throws -> [LexicalToken] {
         case ")": tokens.append(.rightParen); next()
         case "=": tokens.append(.equals); next()
         case "|": tokens.append(.verticalBar); next()
+        case "±": tokens.append(.plusMinus); next()
+        case "{": tokens.append(.leftBrace); next()
+        case "}": tokens.append(.rightBrace); next()
+        case ",": tokens.append(.comma); next()
         default:
             throw SolverError.ParseError.illegalCharacter(char: c)
         }
@@ -100,8 +105,11 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
         }
         return nil
     }
-    func next() -> LexicalToken {
+    func next(error: SolverError.ParseError? = nil) throws -> LexicalToken {
         idx += 1
+        guard idx <= tokens.count else {
+            throw SolverError.ParseError.expectedMoreTokens(error: error)
+        }
         return tokens[idx - 1]
     }
     var variableName: String? = nil
@@ -109,7 +117,7 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
         let tree = try expression()
         if let token = peek() {
             if token == .equals {
-                _ = next()
+                _ = try next()
                 let right = try expression()
                 if peek() != nil {
                     throw SolverError.ParseError.tokensRemainingAfterParsing(remaining: Array(tokens[idx...]))
@@ -126,7 +134,7 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
     func term() throws -> Expression {
         var expr = try factor()
         while [.plus, .minus].contains(peek()) {
-            switch next() {
+            switch try next() {
             case .plus:
                 expr = .binaryOperation(left: expr, operator: .addition, right: try factor())
             case .minus:
@@ -140,7 +148,7 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
     func factor() throws -> Expression {
         var expr = try unaryNegation()
         while [.times, .slash, .percent].contains(peek()) {
-            switch next() {
+            switch try next() {
             case .times:
                 expr = .binaryOperation(left: expr, operator: .multiplication, right: try unaryNegation())
             case .slash:
@@ -155,7 +163,7 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
     }
     func unaryNegation() throws -> Expression {
         if .minus == peek() {
-            _ = next()
+            _ = try next()
             return .unaryOperator(operator: .negation, value: try unaryNegation())
         }
         return try exponentiation()
@@ -163,7 +171,7 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
     func exponentiation() throws -> Expression {
         let base = try factorial()
         if .caret == peek() {
-            _ = next()
+            _ = try next()
             let exp = try exponentiation() //right-associative
             return .binaryOperation(left: base, operator: .exponentiation, right: exp)
         }
@@ -172,7 +180,7 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
     func factorial() throws -> Expression {
         let lit = try literal() //NOTE: this does not handle more than one factorial in a row
         if .exclamationPoint == peek() {
-            _ = next()
+            _ = try next()
             return .unaryOperator(operator: .factorial, value: lit)
         }
         return lit
@@ -181,7 +189,7 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
         guard let token = peek() else {
             throw SolverError.ParseError.incompleteExpression
         }
-        _ = next()
+        _ = try next()
         switch token {
         case .number(let value):
             guard let val = Double(value) else {
@@ -190,16 +198,26 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
             return .number(value: val)
         case .leftParen:
             let expr = try expression()
-            guard next() == .rightParen else {
+            guard try next(error: .unmatchedOpeningParenthesis) == .rightParen else {
                 throw SolverError.ParseError.unmatchedOpeningParenthesis
             }
             return expr
         case .verticalBar:
             let expr = try expression()
-            guard next() == .verticalBar else {
+            guard try next(error: .unmatchedAbsoluteValue) == .verticalBar else {
                 throw SolverError.ParseError.unmatchedAbsoluteValue
             }
             return .unaryOperator(operator: .absoluteValue, value: expr)
+        case .leftBrace:
+            var exprs = [try expression()]
+            while .comma == peek() {
+                _ = try next()
+                exprs.append(try expression())
+            }
+            guard try next(error: .unmatchedOpeningBrace) == .rightBrace else {
+                throw SolverError.ParseError.unmatchedOpeningBrace
+            }
+            return .multiplePossibilities(possiblities: exprs)
         case .identifier(let name):
             if let v = variableName {
                 if v == name {
@@ -211,7 +229,7 @@ func parse(tokens: [LexicalToken]) throws -> (Expression, String?) {
             variableName = name
             return .variable
         default:
-            throw SolverError.ParseError.unknownToken(token: tokens[idx-1])
+            throw SolverError.ParseError.illegalToken(token: tokens[idx-1])
         }
     }
 
@@ -393,6 +411,10 @@ extension Expression { //Solving
                     return try Expression.equation(left: left1, right: left2).solve(printSteps: printSteps)
                 }
             }
+        case (.multiplePossibilities(possiblities: let list), _) where list.count == 1:
+            return try Expression.equation(left: list[0], right: right).solve(printSteps: printSteps)
+        case (_, .multiplePossibilities(possiblities: let list)) where list.count == 1:
+            return try Expression.equation(left: left, right: list[0]).solve(printSteps: printSteps)
         default: break
         }
 
@@ -553,6 +575,14 @@ extension Expression { //Solving
                 if lv {
                     //var on left (in base)
                     //x^2 = 4 -> x = 4^(1/2)
+
+                    //trying to convert x^2=9 to x=±3
+//                    let exp = try! right.resolve()
+//                    for e in exp {
+//                        if round(e) == e {
+//                            Int(e).isMultiple(of: 1) && Int(e) > 1
+//                        }
+//                    }
                     let newLeft = left
                     let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .exponentiation, right: .binaryOperation(left: .number(value: 1), operator: .division, right: right))
                     let newEquation = Expression.equation(left: newLeft, right: newRight)
@@ -566,7 +596,17 @@ extension Expression { //Solving
                 throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is inside a modulo")
             }
         case .multiplePossibilities(possiblities: let list):
-            throw SolverError.InternalError.notYetSupported(description: "variable inside multiple possibilities \(list)")
+            switch list.count {
+            case 0: throw SolverError.InternalError.notYetSupported(description: "{} = something")
+            case 1: return try Expression.equation(left: list[0], right: nonVariableSide).solve(printSteps: printSteps)
+            default:
+                //{x+1, 2*x}=10
+                //x={10-1, 10/2}
+                return try Expression.multiplePossibilities(possiblities: list.map { lhs in
+                    return try Expression.equation(left: lhs, right: nonVariableSide).solve(printSteps: printSteps)
+                })
+            }
+//            throw SolverError.InternalError.notYetSupported(description: "variable inside multiple possibilities \(list)")
         }
     }
 
@@ -778,11 +818,13 @@ public enum SolverError: Swift.Error {
         case numberEndingInDot(lexeme: String)
         case loneDot
         case unmatchedOpeningParenthesis
-        case unknownToken(token: LexicalToken)
+        case illegalToken(token: LexicalToken)
         case incompleteExpression
         case tokensRemainingAfterParsing(remaining: [LexicalToken])
         case tooManyVariables(newVariable: String)
         case unmatchedAbsoluteValue
+        case unmatchedOpeningBrace
+        indirect case expectedMoreTokens(error: ParseError?)
     }
     public enum SolveError: Swift.Error {
         case solvingExpression
