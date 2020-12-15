@@ -324,22 +324,6 @@ extension Expression { //Utils (?)
             return list.contains { $0.contains(subexpr) }
         }
     }
-    // **[WIP] Unknown if needed**
-    func replace(_ subexpr: Expression, with new: Expression) -> Expression {
-        if self == subexpr { return new }
-        switch self {
-        case .number: return self
-        case let .binaryOperation(left, op, right):
-            return .binaryOperation(left: left.replace(subexpr, with: new), operator: op, right: right.replace(subexpr, with: new))
-        case let .unaryOperator(op, value):
-            return .unaryOperator(operator: op, value: value.replace(subexpr, with: new))
-        case .variable: return self
-        case let .equation(left, right):
-            return .equation(left: left.replace(subexpr, with: new), right: right.replace(subexpr, with: new))
-        case .multiplePossibilities(possiblities: let list):
-            return .multiplePossibilities(possiblities: list.map { $0.replace(subexpr, with: new) })
-        }
-    }
     func simplify() -> Expression {
         switch self {
         case .number: return self
@@ -449,7 +433,6 @@ extension Expression { //Utils (?)
             }
         }
     }
-    // **End WIP**
 }
 
 //MARK: Expression: Solving
@@ -467,6 +450,65 @@ extension Expression { //Solving
         guard case let .equation(left, right) = simplified else {
             throw SolverError.SolveError.solvingExpression
         }
+        func flattenAdditionTree(_ tree: Expression) -> [Expression] {
+            switch tree {
+            case .variable: return [tree]
+            case .number: return [tree]
+            case .binaryOperation(left: let l, operator: let op, right: let r):
+                switch op {
+                case .addition:
+                    return flattenAdditionTree(l) + flattenAdditionTree(r)
+                case .subtraction:
+                    return flattenAdditionTree(l) + flattenAdditionTree(r).map { Expression.unaryOperator(operator: .negation, value: $0) }
+                default: return [tree]
+                }
+            case .unaryOperator(operator: let op, value: let v):
+                switch op {
+                case .negation:
+                    return [tree]//maybe?
+                default: return [tree]
+                }
+            default: return [tree]
+            }
+        }
+        func reconstituteAdditionTree(_ list: [Expression]) -> Expression {
+            switch list.count {
+            case 0: return .number(value: 0)
+            case 1: return list[0]
+            case 2: return .binaryOperation(left: list[0], operator: .addition, right: list[1])
+            default:
+                let last = list.last!
+                let remaining = Array(list.dropLast())
+                return .binaryOperation(left: reconstituteAdditionTree(remaining), operator: .addition, right: last)
+            }
+        }
+        func sorter(first: Expression, second: Expression) -> Bool {
+            if let firstCAD = first.nonVariableCoefficientAndDegree, let secondCAD = second.nonVariableCoefficientAndDegree {
+                if case let (.number(fd), .number(sd)) = (firstCAD.degree, secondCAD.degree) {
+                    return fd > sd
+                }
+            } else {
+                if first.nonVariableCoefficientAndDegree != nil {
+                    return true
+                } else if second.nonVariableCoefficientAndDegree != nil {
+                    return false
+                }
+            }
+            return false
+        }
+        let newEquation = Expression.equation(left: reconstituteAdditionTree(flattenAdditionTree(left).sorted(by: sorter(first:second:))), right: reconstituteAdditionTree(flattenAdditionTree(right).sorted(by: sorter(first:second:))))
+        let newSimplified = newEquation.simplify()
+        print(newEquation.toString())
+        print(newSimplified.toString())
+//        var dict: [Expression: Expression] = [:]
+//        func condenseLikeTerms(expr: Expression) -> [Expression: Expression] {
+//            switch expr {
+//            case .number(value: let val): return [.number(value: 1): expr]
+//            case .variable: return [.variable: .number(value: 1)]
+//            case .unaryOperator(operator: let op, value: let val):
+//
+//            }
+//        }
 
         switch (left, right) {
         case (.number, .number):
