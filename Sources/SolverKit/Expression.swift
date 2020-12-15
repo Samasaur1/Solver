@@ -346,11 +346,26 @@ extension Expression { //Utils (?)
         case .variable: return self
         case let .unaryOperator(op, value):
             let v = value.simplify()
-            if op == .negation {
-                if case let .unaryOperator(op2, value2) = v {
-                    if op2 == .negation {
-                        return value2.simplify()
+            switch op {
+            case .absoluteValue:
+                if case let .number(val) = v {
+                    return .number(value: abs(val))
+                }
+            case .factorial:
+                if case let .number(val) = v {
+                    if let f = try? val.factorial() {
+                        return .number(value: f)
                     }
+                }
+            case .negation:
+                switch v {
+                case .number(value: let val): return .number(value: -val)
+                case .unaryOperator(operator: let op2, value: let value2) where op2 == .negation:
+                    return value2.simplify()
+                default: break
+                }
+                if case let .number(val) = v {
+                    return .number(value: -val)
                 }
             }
             return .unaryOperator(operator: op, value: v)
@@ -359,23 +374,66 @@ extension Expression { //Utils (?)
             let r = right.simplify()
             switch op {
             case .addition:
-                switch (l, r) {
-                case let (.number(val1), .number(val2)): return .number(value: val1 + val2)
-                case (.number, _), (_, .number): break
-                case (.variable, .variable): return .binaryOperation(left: .number(value: 2), operator: .multiplication, right: .variable)
-//                case (.variable, let .binaryOperation(left: l1, operator: op1, right: r1)): //TODO
-                default: break //TODO
+                if case let (.number(val1), .number(val2)) = (l, r) {
+                    return .number(value: val1 + val2)
+                }
+                if let (lc, ld) = l.nonVariableCoefficientAndDegree, let (rc, rd) = r.nonVariableCoefficientAndDegree {
+                    if (ld == rd) {
+                        return Expression.binaryOperation(left: .binaryOperation(left: lc, operator: .addition, right: rc), operator: .multiplication, right: .binaryOperation(left: .variable, operator: .exponentiation, right: ld)).simplify()
+                    }
                 }
             case .subtraction:
-                break
+                if case let (.number(val1), .number(val2)) = (l, r) {
+                    return .number(value: val1 - val2)
+                }
+                if let (lc, ld) = l.nonVariableCoefficientAndDegree, let (rc, rd) = r.nonVariableCoefficientAndDegree {
+                    if (ld == rd) {
+                        return Expression.binaryOperation(left: .binaryOperation(left: lc, operator: .subtraction, right: rc), operator: .multiplication, right: .binaryOperation(left: .variable, operator: .exponentiation, right: ld)).simplify()
+                    }
+                }
             case .multiplication:
-                break
+                if case let (.number(val1), .number(val2)) = (l, r) {
+                    return .number(value: val1 * val2)
+                }
+                if let (lc, ld) = l.nonVariableCoefficientAndDegree, let (rc, rd) = r.nonVariableCoefficientAndDegree {
+                    return Expression.binaryOperation(left: .binaryOperation(left: lc, operator: .multiplication, right: rc), operator: .multiplication, right: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: ld, operator: .addition, right: rd))).simplify()
+                }
+                func oneSideNum(_ num: Double, other: Expression) -> Expression? {
+                    switch num {
+                    case 0: return .number(value: 0)
+                    case 1: return other
+                    case -1: return Expression.unaryOperator(operator: .negation, value: other).simplify()
+                    default: return nil
+                    }
+                }
+                if case let .number(num) = l {
+                    if let res = oneSideNum(num, other: r) { return res }
+                }
+                if case let .number(num) = r {
+                    if let res = oneSideNum(num, other: l) { return res }
+                }
             case .division:
-                break
+                if case let (.number(val1), .number(val2)) = (l, r) {
+                    return .number(value: val1 / val2)
+                }
+                if let (lc, ld) = l.nonVariableCoefficientAndDegree, let (rc, rd) = r.nonVariableCoefficientAndDegree {
+                    return Expression.binaryOperation(left: .binaryOperation(left: lc, operator: .division, right: rc), operator: .multiplication, right: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: ld, operator: .subtraction, right: rd))).simplify()
+                }
             case .exponentiation:
-                break
+                if case let (.number(base), .number(exp)) = (l, r) {
+                    return .number(value: pow(base, exp))
+                }
+                if case let .number(exp) = r {
+                    switch exp {
+                    case 0: return .number(value: 1)
+                    case 1: return l
+                    default: break
+                    }
+                }
             case .modulus:
-                break
+                if case let (.number(val1), .number(val2)) = (l, r) {
+                    return .number(value: val1.truncatingRemainder(dividingBy: val2))
+                }
             }
             return .binaryOperation(left: l, operator: op, right: r)
         case .equation(left: let left, right: let right):
@@ -384,7 +442,11 @@ extension Expression { //Utils (?)
             //TODO (?)
             return .equation(left: l, right: r)
         case .multiplePossibilities(possiblities: let list):
-            return .multiplePossibilities(possiblities: list.map { $0.simplify() })
+            switch list.count {
+            case 0: return .multiplePossibilities(possiblities: [])
+            case 1: return list[0].simplify()
+            default: return .multiplePossibilities(possiblities: list.map { $0.simplify() })
+            }
         }
     }
     // **End WIP**
@@ -392,9 +454,17 @@ extension Expression { //Utils (?)
 
 //MARK: Expression: Solving
 extension Expression { //Solving
+    //TODO: refactor solving:
+    //  1. simplify (bottom-up) (both sides of equation)
+    //  2. you should be left with only addition/subtraction. inspect the tree AS A WHOLE, combining like terms. (both sides of equation)
+    //  3. now … it's complicated? you should have `ax^b + cx^d - fx^g ... = hx^k - mx^n + px^q ... — how to solve? idk?
+    //  3b. look at the derivation of the quadratic formula? the problem is that sometimes you could have `x=5` (or `x-5=0`) and that gets solved very differently than `x^2+2^x+4=0`
+    //  3c. more problems appear when you realize that one of your terms could have an x that is actually `|x|`, or `|x|^n`, or even `x^n*|x|^m`. weird.
     public func solve(printSteps: Bool) throws -> Expression {
         if printSteps { print(self.toString()) }
-        guard case let .equation(left, right) = self else {
+        let simplified = self.simplify()
+        if printSteps { print(simplified.toString()) }
+        guard case let .equation(left, right) = simplified else {
             throw SolverError.SolveError.solvingExpression
         }
 
@@ -668,6 +738,12 @@ extension Expression { //Solving
             default: return nil
             }
         case .variable: return .number(value: 1)
+        case .unaryOperator(operator: let op, value: let value):
+            if op == .negation {
+                if let nvc = value.nonVariableCoefficient {
+                    return .unaryOperator(operator: .negation, value: nvc)
+                }
+            }
         default: return nil
         }
         return nil
@@ -696,7 +772,7 @@ extension Expression { //Solving
     }
 
     //Given ax^b, returns (a, b) iff x is not in a or b
-    var nonVariableCoefficientAndDegree: (Expression, Expression)? {
+    var nonVariableCoefficientAndDegree: (coefficient: Expression, degree: Expression)? {
         //If there is no coefficient
         if let nvd = nonVariableDegree {
             return (.number(value: 1), nvd)
@@ -706,6 +782,7 @@ extension Expression { //Solving
         case let .binaryOperation(left, op, right):
             switch op {
             case .multiplication:
+                //TODO: other order?
                 guard !left.contains(.variable) else {
                     return nil
                 }
@@ -717,10 +794,18 @@ extension Expression { //Solving
                         return nil
                     }
                     return (left, exp)
+                } else if right == .variable {
+                    return (left, .number(value: 1))
                 }
             default: return nil
             }
         case .variable: return (.number(value: 1), .number(value: 1))
+        case .unaryOperator(operator: let op, value: let value):
+            if op == .negation {
+                if let nvcad = value.nonVariableCoefficientAndDegree {
+                    return (.unaryOperator(operator: .negation, value: nvcad.coefficient), nvcad.degree)
+                }
+            }
         default: return nil
         }
         return nil
@@ -778,11 +863,7 @@ public enum UnaryOperator {
         for val in values {
             switch self {
             case .factorial:
-                if val == round(val) { //integer
-                    results.append(Double(Array(1...Int(val)).reduce(1, *)))
-                } else {
-                    throw SolverError.ResolveError.nonIntegerFactorial(val: val)
-                }
+                results.append(try val.factorial())
             case .negation:
                 results.append(-val)
             case .absoluteValue:
@@ -809,6 +890,19 @@ public enum UnaryOperator {
         case .negation:
             return "-\(exprOutput)"
         case .absoluteValue: fatalError("Already handled")
+        }
+    }
+}
+
+extension Double {
+    var unsafeFactorial: Double {
+        Double(Array(1...Int(self)).reduce(1, *))
+    }
+    func factorial() throws -> Double {
+        if self == rounded() { //integer
+            return unsafeFactorial
+        } else {
+            throw SolverError.ResolveError.nonIntegerFactorial(val: self)
         }
     }
 }
