@@ -542,6 +542,7 @@ extension Expression { //Solving
         guard case let .equation(left, right) = simplified else {
             throw SolverError.SolveError.solvingExpression
         }
+
         func flattenAdditionTree(_ tree: Expression) -> [Expression] {
             switch tree {
             case .variable: return [tree]
@@ -588,9 +589,17 @@ extension Expression { //Solving
             }
             return false
         }
+
         let newEquation = Expression.equation(left: reconstituteAdditionTree(flattenAdditionTree(left).sorted(by: sorter(first:second:))), right: reconstituteAdditionTree(flattenAdditionTree(right).sorted(by: sorter(first:second:))))
-//        let newEquation = Expression.equation(left: reconstituteAdditionTree(flattenAdditionTree(left).map { $0.simplify() }.sorted(by: sorter(first:second:))), right: .number(value: 0))
-        let newSimplified = newEquation.simplify()
+        return try newEquation.__solve(printSteps: printSteps)
+    }
+    func __solve(printSteps: Bool) throws -> Expression {
+        if printSteps { print(self.toString()) }
+        let simplified = self.simplify()
+        if printSteps { print(simplified.toString()) }
+        guard case let .equation(left, right) = simplified else {
+            throw SolverError.SolveError.solvingExpression
+        }
 
         switch (left, right) {
         case (.number, .number):
@@ -601,21 +610,21 @@ extension Expression { //Solving
             throw SolverError.InternalError.notYetSupported(description: "x=x")
         case (.unaryOperator(let op1, let value1), .unaryOperator(let op2, let value2)):
             if op1 == op2 {
-                return try Expression.equation(left: value1, right: value2).solve(printSteps: printSteps)
+                return try Expression.equation(left: value1, right: value2).__solve(printSteps: printSteps)
             }
         case (let .binaryOperation(left1, op1, right1), let .binaryOperation(left2, op2, right2)):
             if (op1 == op2) {
                 if (left1 == left2) {
-                    return try Expression.equation(left: right1, right: right2).solve(printSteps: printSteps)
+                    return try Expression.equation(left: right1, right: right2).__solve(printSteps: printSteps)
                 }
                 if (right1 == right2) {
-                    return try Expression.equation(left: left1, right: left2).solve(printSteps: printSteps)
+                    return try Expression.equation(left: left1, right: left2).__solve(printSteps: printSteps)
                 }
             }
         case (.multiplePossibilities(possiblities: let list), _) where list.count == 1:
-            return try Expression.equation(left: list[0], right: right).solve(printSteps: printSteps)
+            return try Expression.equation(left: list[0], right: right).__solve(printSteps: printSteps)
         case (_, .multiplePossibilities(possiblities: let list)) where list.count == 1:
-            return try Expression.equation(left: left, right: list[0]).solve(printSteps: printSteps)
+            return try Expression.equation(left: left, right: list[0]).__solve(printSteps: printSteps)
         default: break
         }
 
@@ -652,20 +661,20 @@ extension Expression { //Solving
                 let newLeft = value
                 let newRight = Expression.unaryOperator(operator: .negation, value: nonVariableSide)
                 let newEquation = Expression.equation(left: newLeft, right: newRight)
-                return try newEquation.solve(printSteps: printSteps)
+                return try newEquation.__solve(printSteps: printSteps)
             case .absoluteValue:
                 let newLeft = value
                 let negativeOppositeSide = Expression.unaryOperator(operator: .negation, value: nonVariableSide)
                 let newRight = Expression.multiplePossibilities(possiblities: [nonVariableSide, negativeOppositeSide])
                 let newEquation = Expression.equation(left: newLeft, right: newRight)
-                return try newEquation.solve(printSteps: printSteps)
+                return try newEquation.__solve(printSteps: printSteps)
             }
         case let .binaryOperation(left, op, right):
             switch op {
             case .addition:
                 return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .subtraction, printSteps: printSteps) { (first, second) in
                     if let c1 = first.nonVariableCoefficient, let c2 = second.nonVariableCoefficient {
-                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .addition, right: c2), operator: .multiplication, right: .variable), right: nonVariableSide).solve(printSteps: printSteps)
+                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .addition, right: c2), operator: .multiplication, right: .variable), right: nonVariableSide).__solve(printSteps: printSteps)
                     }
 //                    if first == .variable {
 //                        switch second {
@@ -702,7 +711,7 @@ extension Expression { //Solving
                 }
                 if lv && rv {
                     if let c1 = left.nonVariableCoefficient, let c2 = right.nonVariableCoefficient {
-                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .subtraction, right: c2), operator: .multiplication, right: .variable), right: nonVariableSide).solve(printSteps: printSteps)
+                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .subtraction, right: c2), operator: .multiplication, right: .variable), right: nonVariableSide).__solve(printSteps: printSteps)
                     }
                     throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in the minuend and the subtrahend")
                 }
@@ -712,23 +721,23 @@ extension Expression { //Solving
                     let newLeft = left
                     let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .addition, right: right)
                     let newEquation = Expression.equation(left: newLeft, right: newRight)
-                    return try newEquation.solve(printSteps: printSteps)
+                    return try newEquation.__solve(printSteps: printSteps)
                 } else {
                     //var on right
                     // e.g. 1-x = 2 -> 1 = 2+x
                     let newLeft = left
                     let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .addition, right: right)
                     let newEquation = Expression.equation(left: newLeft, right: newRight)
-                    return try newEquation.solve(printSteps: printSteps)
+                    return try newEquation.__solve(printSteps: printSteps)
                 }
             case .multiplication:
                 return try simpleCommutativeBinaryOperation(left: left, right: right, nonVariableSide: nonVariableSide, invertedOperator: .division, printSteps: printSteps) { (first, second) in
                     if let d1 = first.nonVariableDegree, let d2 = second.nonVariableDegree {
-                        return try Expression.equation(left: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .addition, right: d2)), right: nonVariableSide).solve(printSteps: printSteps)
+                        return try Expression.equation(left: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .addition, right: d2)), right: nonVariableSide).__solve(printSteps: printSteps)
                     }
                     //(c1*(x^d1))*(c2*(x^d2)) -> (c1*c2)*(x^(d1+d2))
                     if let (c1, d1) = first.nonVariableCoefficientAndDegree, let (c2, d2) = second.nonVariableCoefficientAndDegree {
-                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .multiplication, right: c2), operator: .multiplication, right: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .addition, right: d2))), right: nonVariableSide).solve(printSteps: printSteps)
+                        return try Expression.equation(left: .binaryOperation(left: .binaryOperation(left: c1, operator: .multiplication, right: c2), operator: .multiplication, right: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .addition, right: d2))), right: nonVariableSide).__solve(printSteps: printSteps)
                     }
                     throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in both factors")
                 }
@@ -740,7 +749,7 @@ extension Expression { //Solving
                 }
                 if lv && rv {
                     if let d1 = left.nonVariableDegree, let d2 = right.nonVariableDegree {
-                        return try Expression.equation(left: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .subtraction, right: d2)), right: nonVariableSide).solve(printSteps: printSteps)
+                        return try Expression.equation(left: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: d1, operator: .subtraction, right: d2)), right: nonVariableSide).__solve(printSteps: printSteps)
                     }
                     throw SolverError.InternalError.notYetSupported(description: "Solving equations where the variable is in the dividend and divisor")
                 }
@@ -750,7 +759,7 @@ extension Expression { //Solving
                     let newLeft = left
                     let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .multiplication, right: right)
                     let newEquation = Expression.equation(left: newLeft, right: newRight)
-                    return try newEquation.solve(printSteps: printSteps)
+                    return try newEquation.__solve(printSteps: printSteps)
                 } else {
                     //var on right
                     // e.g. 1/x = 2 -> 1/2 = x
@@ -762,7 +771,7 @@ extension Expression { //Solving
                         //print that skipped step
                         print(left.toString(), "=", Expression.binaryOperation(left: nonVariableSide, operator: .multiplication, right: .variable).toString())
                     }
-                    return try newEquation.solve(printSteps: printSteps)
+                    return try newEquation.__solve(printSteps: printSteps)
                 }
             case .exponentiation:
                 let lv = left.contains(.variable)
@@ -787,7 +796,7 @@ extension Expression { //Solving
                     let newLeft = left
                     let newRight = Expression.binaryOperation(left: nonVariableSide, operator: .exponentiation, right: .binaryOperation(left: .number(value: 1), operator: .division, right: right))
                     let newEquation = Expression.equation(left: newLeft, right: newRight)
-                    return try newEquation.solve(printSteps: printSteps)
+                    return try newEquation.__solve(printSteps: printSteps)
                 } else {
                     //var on right (in exponent)
                     //2^x = 4 -> x*log(2)=log(4)
@@ -799,12 +808,12 @@ extension Expression { //Solving
         case .multiplePossibilities(possiblities: let list):
             switch list.count {
             case 0: throw SolverError.InternalError.notYetSupported(description: "{} = something")
-            case 1: return try Expression.equation(left: list[0], right: nonVariableSide).solve(printSteps: printSteps)
+            case 1: return try Expression.equation(left: list[0], right: nonVariableSide).__solve(printSteps: printSteps)
             default:
                 //{x+1, 2*x}=10
                 //x={10-1, 10/2}
                 return try Expression.multiplePossibilities(possiblities: list.map { lhs in
-                    return try Expression.equation(left: lhs, right: nonVariableSide).solve(printSteps: printSteps)
+                    return try Expression.equation(left: lhs, right: nonVariableSide).__solve(printSteps: printSteps)
                 })
             }
 //            throw SolverError.InternalError.notYetSupported(description: "variable inside multiple possibilities \(list)")
@@ -830,7 +839,7 @@ extension Expression { //Solving
             let newLeft = varSide
             let newRight = Expression.binaryOperation(left: nonVariableSide, operator: invertedOperator, right: nonVarSide)
             let newEquation = Expression.equation(left: newLeft, right: newRight)
-            return try newEquation.solve(printSteps: printSteps)
+            return try newEquation.__solve(printSteps: printSteps)
         }, twoVars: twoVars)
     }
 
@@ -907,19 +916,39 @@ extension Expression { //Solving
             switch op {
             case .multiplication:
                 //TODO: other order?
-                guard !left.contains(.variable) else {
+                let lv = left.contains(.variable)
+                let rv = right.contains(.variable)
+                guard !(lv && rv) else {
                     return nil
                 }
-                if case let .binaryOperation(base, op2, exp) = right, op2 == .exponentiation {
-                    guard base == .variable else {
-                        return nil
+                guard lv || rv else {
+                    return nil
+                }
+                if rv {
+                    if case let .binaryOperation(base, op2, exp) = right, op2 == .exponentiation {
+                        guard base == .variable else {
+                            return nil
+                        }
+                        guard !exp.contains(.variable) else {
+                            return nil
+                        }
+                        return (left, exp)
+                    } else if right == .variable {
+                        return (left, .number(value: 1))
                     }
-                    guard !exp.contains(.variable) else {
-                        return nil
+                } else {
+                    //variable on left
+                    if case let .binaryOperation(base, op2, exp) = left, op2 == .exponentiation {
+                        guard base == .variable else {
+                            return nil
+                        }
+                        guard !exp.contains(.variable) else {
+                            return nil
+                        }
+                        return (right, exp)
+                    } else if left == .variable {
+                        return (right, .number(value: 1))
                     }
-                    return (left, exp)
-                } else if right == .variable {
-                    return (left, .number(value: 1))
                 }
             default: return nil
             }
