@@ -387,7 +387,22 @@ extension Expression { //Utils (?)
                     case 0: return .number(value: 0)
                     case 1: return other
                     case -1: return Expression.unaryOperator(operator: .negation, value: other).simplify()
-                    default: return nil
+                    default:
+                        switch other {
+                        case .binaryOperation(let left, operator: let op, let right):
+                            switch op {
+                            case .addition, .subtraction:
+                                return Expression.binaryOperation(left: .binaryOperation(left: .number(value: num), operator: .multiplication, right: left), operator: op, right: .binaryOperation(left: .number(value: num), operator: .multiplication, right: right)).simplify()
+                            case .multiplication:
+                                if left == .variable {
+                                    return Expression.binaryOperation(left: .binaryOperation(left: .number(value: num), operator: .multiplication, right: right), operator: .multiplication, right: .variable).simplify()
+                                } else {
+                                    return Expression.binaryOperation(left: .binaryOperation(left: .number(value: num), operator: .multiplication, right: left), operator: .multiplication, right: .variable).simplify()
+                                }
+                            default: return nil
+                            }
+                        default: return nil
+                        }
                     }
                 }
                 if case let .number(num) = l {
@@ -402,6 +417,82 @@ extension Expression { //Utils (?)
                 }
                 if let (lc, ld) = l.nonVariableCoefficientAndDegree, let (rc, rd) = r.nonVariableCoefficientAndDegree {
                     return Expression.binaryOperation(left: .binaryOperation(left: lc, operator: .division, right: rc), operator: .multiplication, right: .binaryOperation(left: .variable, operator: .exponentiation, right: .binaryOperation(left: ld, operator: .subtraction, right: rd))).simplify()
+                }
+                func oneSideNum(_ num: Double, other: Expression) -> Expression? {
+                    switch num {
+                    case 0: return .number(value: 0)
+                    case 1: return other
+                    case -1: return Expression.unaryOperator(operator: .negation, value: other).simplify()
+                    default:
+                        switch other {
+                        case .binaryOperation(let left, operator: let op, let right):
+                            switch op {
+                            case .addition, .subtraction:
+                                return Expression.binaryOperation(left: .binaryOperation(left: .number(value: num), operator: .multiplication, right: left), operator: op, right: .binaryOperation(left: .number(value: num), operator: .multiplication, right: right)).simplify()
+                            case .multiplication:
+                                if left == .variable {
+                                    return Expression.binaryOperation(left: .binaryOperation(left: .number(value: num), operator: .multiplication, right: right), operator: .multiplication, right: .variable).simplify()
+                                } else {
+                                    return Expression.binaryOperation(left: .binaryOperation(left: .number(value: num), operator: .multiplication, right: left), operator: .multiplication, right: .variable).simplify()
+                                }
+                            default: return nil
+                            }
+                        default: return nil
+                        }
+                    }
+                }
+                if case let .number(num) = l {
+                    //num/something
+                    switch num {
+                    case 0: return .number(value: 0)
+                    default:
+                        switch r {
+                        case .binaryOperation(let left, operator: let op, let right):
+                            //num/(left op right)
+                            switch op {
+//                            case .addition, .subtraction:
+//                                return Expression.binaryOperation(left: .binaryOperation(left: l, operator: .division, right: left), operator: op, right: .binaryOperation(left: l, operator: .division, right: right)).simplify()
+                            case .multiplication:
+                                if left == .variable {
+                                    //l/(x*right) -> (l/right)/x
+                                    return Expression.binaryOperation(left: .binaryOperation(left: l, operator: .division, right: right), operator: .division, right: .variable).simplify()
+                                } else {
+                                    //l/(left*x) -> (l/left)/x
+                                    return Expression.binaryOperation(left: .binaryOperation(left: l, operator: .division, right: left), operator: .division, right: .variable).simplify()
+                                }
+                            default: break
+                            }
+                        default: break
+                        }
+                    }
+                }
+                if case let .number(num) = r {
+                    //something/num
+                    switch num {
+//                    case 0: return .binaryOperation(left: .number(value: 0), operator: .division, right: .number(value: 0))
+                    case 1: return l
+                    case -1: return Expression.unaryOperator(operator: .negation, value: l).simplify()
+                    default:
+                        switch l {
+                        case .binaryOperation(let left, operator: let op, let right):
+                            //(left op right)/num
+                            switch op {
+                            case .addition, .subtraction:
+                                //(left op right)/num -> left/num op right/num
+                                return Expression.binaryOperation(left: .binaryOperation(left: left, operator: .division, right: r), operator: op, right: .binaryOperation(left: right, operator: .division, right: r)).simplify()
+                            case .multiplication:
+                                if left == .variable {
+                                    //(x*right)/r -> x*(right/r)
+                                    return Expression.binaryOperation(left: .variable, operator: .multiplication, right: .binaryOperation(left: right, operator: .division, right: r)).simplify()
+                                } else {
+                                    //(left*x)/r -> x*(left/r)
+                                    return Expression.binaryOperation(left: .variable, operator: .multiplication, right: .binaryOperation(left: left, operator: .division, right: r)).simplify()
+                                }
+                            default: break
+                            }
+                        default: break
+                        }
+                    }
                 }
             case .exponentiation:
                 if case let (.number(base), .number(exp)) = (l, r) {
@@ -443,6 +534,7 @@ extension Expression { //Solving
     //  3. now … it's complicated? you should have `ax^b + cx^d - fx^g ... = hx^k - mx^n + px^q ... — how to solve? idk?
     //  3b. look at the derivation of the quadratic formula? the problem is that sometimes you could have `x=5` (or `x-5=0`) and that gets solved very differently than `x^2+2^x+4=0`
     //  3c. more problems appear when you realize that one of your terms could have an x that is actually `|x|`, or `|x|^n`, or even `x^n*|x|^m`. weird.
+    //  3d. Perhaps look at synthetic division with the zero product property
     public func solve(printSteps: Bool) throws -> Expression {
         if printSteps { print(self.toString()) }
         let simplified = self.simplify()
@@ -497,18 +589,8 @@ extension Expression { //Solving
             return false
         }
         let newEquation = Expression.equation(left: reconstituteAdditionTree(flattenAdditionTree(left).sorted(by: sorter(first:second:))), right: reconstituteAdditionTree(flattenAdditionTree(right).sorted(by: sorter(first:second:))))
+//        let newEquation = Expression.equation(left: reconstituteAdditionTree(flattenAdditionTree(left).map { $0.simplify() }.sorted(by: sorter(first:second:))), right: .number(value: 0))
         let newSimplified = newEquation.simplify()
-        print(newEquation.toString())
-        print(newSimplified.toString())
-//        var dict: [Expression: Expression] = [:]
-//        func condenseLikeTerms(expr: Expression) -> [Expression: Expression] {
-//            switch expr {
-//            case .number(value: let val): return [.number(value: 1): expr]
-//            case .variable: return [.variable: .number(value: 1)]
-//            case .unaryOperator(operator: let op, value: let val):
-//
-//            }
-//        }
 
         switch (left, right) {
         case (.number, .number):
