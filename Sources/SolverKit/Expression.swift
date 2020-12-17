@@ -590,10 +590,11 @@ extension Expression { //Solving
             return false
         }
 
-        let newEquation = Expression.equation(left: reconstituteAdditionTree(flattenAdditionTree(left).sorted(by: sorter(first:second:))), right: reconstituteAdditionTree(flattenAdditionTree(right).sorted(by: sorter(first:second:))))
+        let newEquation = Expression.equation(left: reconstituteAdditionTree(flattenAdditionTree(.binaryOperation(left: left, operator: .subtraction, right: right)).sorted(by: sorter(first:second:))), right: .number(value: 0))
         return try newEquation.__solve(printSteps: printSteps)
     }
-    func __solve(printSteps: Bool) throws -> Expression {
+
+    fileprivate func __solve(printSteps: Bool) throws -> Expression {
         if printSteps { print(self.toString()) }
         let simplified = self.simplify()
         if printSteps { print(simplified.toString()) }
